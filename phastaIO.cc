@@ -53,10 +53,12 @@
 #define LATEST_WRITE_VERSION 1
 int MasterHeaderSize = -1;
 
+int PRINT_PERF = false; // default to not print any perf results
+int PRINT_DEBUG = false; // default to not print any debugging info
+int irank = -1;  //Used only to monitor time
+
 //unsigned long long pool_align = 8;
 //unsigned long long mem_address;
-
-int irank = -1;  //Used only to monitor time
 
 enum PhastaIO_Errors
 {
