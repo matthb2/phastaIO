@@ -53,8 +53,10 @@
 #define LATEST_WRITE_VERSION 1
 int MasterHeaderSize = -1;
 
-int PRINT_PERF = false; // default to not print any perf results
-int PRINT_DEBUG = false; // default to not print any debugging info
+bool PRINT_PERF = false; // default to not print any perf results
+bool PRINT_DEBUG = false; // default to not print any debugging info
+int myrank = -1; // global rank, should never be manually manipulated
+int mysize = -1;
 int irank = -1;  //Used only to monitor time
 
 //unsigned long long pool_align = 8;
@@ -303,10 +305,80 @@ namespace{
 
 
 // begin of publicly visible functions
+
+void startTimer(unsigned long long* start) {
+	MPI_Barrier(MPI_COMM_WORLD);
+	*start =  rdtsc();
+}
+
+void endTimer(unsigned long long* end) {
+	*end = rdtsc();
+	MPI_Barrier(MPI_COMM_WORLD);
+}
+
+/**
+ * choose to print some performance results (or not) according to
+ * the PRINT_PERF macro
+ */
+void printPerf(
+		char* func_name,
+		unsigned long long* start,
+		unsigned long long* end,
+		unsigned long long* data_size,
+		char* extra_msg) {
+
+	if( !PRINT_PERF ) return;
+
+	unsigned long long timer_start = *start;
+	unsigned long long timer_end	 = *end;
+	unsigned long long data_size	 = *data_size;
+
+	double time = (double)((timer_end-timer_start)/clockRate);
+
+	if (irank==0) {
+		printf("Time, readdatablock %s  is :    %f s\n",
+				StringStripper(keyphrase),time_span);
+	}
+
+	unsigned long long isizemin,isizemax,isizetot;
+	double sizemin,sizemax,sizeavg,sizetot,rate;
+	double tmin, tmax, tavg, ttot;
+
+	MPI_Allreduce(&time, &tmin,1, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+	MPI_Allreduce(&time, &tmax,1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+	MPI_Allreduce(&time, &ttot,1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+	tavg = ttot/mysize;
+
+	if(myrank == 0) {
+		printf("** %s(): Tmax = %f sec, Tmin = %f sec, Tavg = %f sec", func_name, tmax, tmin, tavg);
+	}
+
+	if(data_size != -1) { // if data size provided, compute I/O rate and block size (Michel: why do we need block size?)
+		MPI_Allreduce(&data_size,&isizemin,1,MPI_LONG_LONG_INT,MPI_MIN,MPI_COMM_WORLD);
+		MPI_Allreduce(&data_size,&isizemax,1,MPI_LONG_LONG_INT,MPI_MAX,MPI_COMM_WORLD);
+		MPI_Allreduce(&data_size,&isizetot,1,MPI_LONG_LONG_INT,MPI_SUM,MPI_COMM_WORLD);
+
+		sizemin=(double)(isizemin/1024.0/1024.0);
+		sizemax=(double)(isizemax/1024.0/1024.0);
+		sizetot=(double)(isizetot/1024.0/1024.0);
+		sizeavg=(double)(1.0*sizetot/mysize);
+		rate=(double)(1.0*sizetot/tmax);
+
+		if( myrank == 0) {
+			printf(", Rate = %f MB/s (%s) \n \t\t\t block size: Min= %f MB; Max= %f MB; Avg= %f MB; Tot= %f MB", rate, extra_msg, sizemin,sizemax,sizeavg,sizetot);
+		}
+	}
+	else {
+		if(myrank == 0) {
+			printf(" (%s) \n", extra_msg);
+		}
+	}
+}
 void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 {
-	int myrank;
+	//int myrank;
 	MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
 
 	if(myrank == 0) {
 		FILE * fileHandle;
@@ -453,6 +525,8 @@ int computeColor( int myrank, int numprocs, int nfiles) {
 
 int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const char mode[])
 {
+	MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
 	char* imode = StringStripper( mode );
 
 	// Note: if it's read, we presume query was called prior to init and
@@ -673,6 +747,8 @@ openfile_( const char filename[],
 		const char mode[],
 		int*  fileDescriptor )
 {
+	MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
 	//if(irank == 0) printf("entering openfile..\n");
 
 	unsigned long long timer_start;
@@ -1141,8 +1217,8 @@ readheader_( int* fileDescriptor,
 			{
 				//MR CHANGE
 				//              printf("Not found %s \n",keyphrase);
-				int myrank;
-				MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+				//int myrank;
+				//MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
 				if(myrank==0) {
 					printf("Not found %s \n",keyphrase);
 				}
