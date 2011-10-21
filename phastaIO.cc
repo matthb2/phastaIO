@@ -53,11 +53,10 @@
 #define LATEST_WRITE_VERSION 1
 int MasterHeaderSize = -1;
 
-bool PRINT_PERF = false; // default to not print any perf results
+bool PRINT_PERF = true; // default to not print any perf results
 bool PRINT_DEBUG = false; // default to not print any debugging info
-int myrank = -1; // global rank, should never be manually manipulated
+int irank = -1; // global rank, should never be manually manipulated
 int mysize = -1;
-int irank = -1;  //Used only to monitor time
 
 //unsigned long long pool_align = 8;
 //unsigned long long mem_address;
@@ -144,6 +143,7 @@ namespace{
 	int PhastaIONextActiveIndex = 0; /* indicates next index to allocate */
 
 	// the caller has the responsibility to delete the returned string
+	// TODO: StringStipper("nbc value? ") returns NULL?
 	char*
 		StringStripper( const char  istring[] ) {
 
@@ -321,24 +321,19 @@ void endTimer(unsigned long long* end) {
  * the PRINT_PERF macro
  */
 void printPerf(
-		char* func_name,
-		unsigned long long* start,
-		unsigned long long* end,
-		unsigned long long* data_size,
-		char* extra_msg) {
+		const char* func_name,
+		unsigned long long start,
+		unsigned long long end,
+		unsigned long long datasize,
+		const char* extra_msg) {
 
 	if( !PRINT_PERF ) return;
 
-	unsigned long long timer_start = *start;
-	unsigned long long timer_end	 = *end;
-	unsigned long long data_size	 = *data_size;
+	unsigned long long timer_start = start;
+	unsigned long long timer_end	 = end;
+	unsigned long long data_size	 = datasize;
 
 	double time = (double)((timer_end-timer_start)/clockRate);
-
-	if (irank==0) {
-		printf("Time, readdatablock %s  is :    %f s\n",
-				StringStripper(keyphrase),time_span);
-	}
 
 	unsigned long long isizemin,isizemax,isizetot;
 	double sizemin,sizemax,sizeavg,sizetot,rate;
@@ -349,8 +344,10 @@ void printPerf(
 	MPI_Allreduce(&time, &ttot,1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 	tavg = ttot/mysize;
 
-	if(myrank == 0) {
-		printf("** %s(): Tmax = %f sec, Tmin = %f sec, Tavg = %f sec", func_name, tmax, tmin, tavg);
+	if(irank == 0) {
+		if ( PhastaIONextActiveIndex == 0 ) printf("** 1PFPP ");
+		else																printf("** syncIO ");
+		printf("%s(): Tmax = %f sec, Tmin = %f sec, Tavg = %f sec", func_name, tmax, tmin, tavg);
 	}
 
 	if(data_size != -1) { // if data size provided, compute I/O rate and block size (Michel: why do we need block size?)
@@ -364,23 +361,23 @@ void printPerf(
 		sizeavg=(double)(1.0*sizetot/mysize);
 		rate=(double)(1.0*sizetot/tmax);
 
-		if( myrank == 0) {
-			printf(", Rate = %f MB/s (%s) \n \t\t\t block size: Min= %f MB; Max= %f MB; Avg= %f MB; Tot= %f MB", rate, extra_msg, sizemin,sizemax,sizeavg,sizetot);
+		if( irank == 0) {
+			printf(", Rate = %f MB/s [%s] \n \t\t\t block size: Min= %f MB; Max= %f MB; Avg= %f MB; Tot= %f MB\n", rate, extra_msg, sizemin,sizemax,sizeavg,sizetot);
 		}
 	}
 	else {
-		if(myrank == 0) {
-			printf(" (%s) \n", extra_msg);
+		if(irank == 0) {
+			printf(" \n");
+			//printf(" (%s) \n", extra_msg);
 		}
 	}
 }
 void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 {
-	//int myrank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
 	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
 
-	if(myrank == 0) {
+	if(irank == 0) {
 		FILE * fileHandle;
 		char* fname = StringStripper( filename );
 
@@ -525,8 +522,13 @@ int computeColor( int myrank, int numprocs, int nfiles) {
 
 int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const char mode[])
 {
-	MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+	// we init irank again in case query not called (e.g. syncIO write case)
+	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
 	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
+
+	unsigned long long timer_start, timer_end;
+	startTimer(&timer_start);
+
 	char* imode = StringStripper( mode );
 
 	// Note: if it's read, we presume query was called prior to init and
@@ -538,490 +540,279 @@ int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const c
 	else if( cscompare( "write", imode ) ) {
 		MasterHeaderSize =  computeMHSize(*nfields, *nppf, LATEST_WRITE_VERSION);
 	}
-	else{
-		// error out
+	else {
+		if (irank == 0) printf("Error: can't recognize the mode %s", imode);
 	}
 
-	unsigned long long timer_start;
-	unsigned long long timer_end;
-	double time_span;
+	int i, j;
 
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_start = rdtsc();
+	if( PhastaIONextActiveIndex == MAX_PHASTA_FILES ) {
+		return MAX_PHASTA_FILES_EXCEEDED;
+	}
+	//		else if( PhastaIONextActiveIndex == 0 )  //Hang in debug mode on Intrepid
+	//		{
+	//			for( i = 0; i < MAX_PHASTA_FILES; i++ );
+	//			{
+	//				PhastaIOActiveFiles[i] = NULL;
+	//			}
+	//		}
 
+
+	PhastaIOActiveFiles[PhastaIONextActiveIndex] = (phastaio_file_t *)calloc( 1,  sizeof( phastaio_file_t) );
+	//PhastaIOActiveFiles[PhastaIONextActiveIndex] = ( phastaio_file_t *)calloc( 1 + 1, sizeof( phastaio_file_t ) );
+	//mem_address = (long long )PhastaIOActiveFiles[PhastaIONextActiveIndex];
+	//if( mem_address & (pool_align -1) )
+	//	PhastaIOActiveFiles[PhastaIONextActiveIndex] += pool_align - (mem_address & (pool_align -1));
+
+	i = PhastaIONextActiveIndex;
+	PhastaIONextActiveIndex++;
+
+	//PhastaIOActiveFiles[i]->next_start_address = 2*TWO_MEGABYTE;
+
+	PhastaIOActiveFiles[i]->next_start_address = MasterHeaderSize;  // what does this mean??? TODO
+
+	PhastaIOActiveFiles[i]->Wrong_Endian = false;
+
+	PhastaIOActiveFiles[i]->nFields = *nfields;
+	PhastaIOActiveFiles[i]->nPPF = *nppf;
+	PhastaIOActiveFiles[i]->nFiles = *nfiles;
+	MPI_Comm_rank(MPI_COMM_WORLD, &(PhastaIOActiveFiles[i]->myrank));
+	MPI_Comm_size(MPI_COMM_WORLD, &(PhastaIOActiveFiles[i]->numprocs));
+
+	int color = computeColor(PhastaIOActiveFiles[i]->myrank, PhastaIOActiveFiles[i]->numprocs, PhastaIOActiveFiles[i]->nFiles);
+	MPI_Comm_split(MPI_COMM_WORLD,
+			color,
+			PhastaIOActiveFiles[i]->myrank,
+			&(PhastaIOActiveFiles[i]->local_comm));
+	MPI_Comm_size(PhastaIOActiveFiles[i]->local_comm,
+			&(PhastaIOActiveFiles[i]->local_numprocs));
+	MPI_Comm_rank(PhastaIOActiveFiles[i]->local_comm,
+			&(PhastaIOActiveFiles[i]->local_myrank));
+	PhastaIOActiveFiles[i]->nppp =
+		PhastaIOActiveFiles[i]->nPPF/PhastaIOActiveFiles[i]->local_numprocs;
+
+	PhastaIOActiveFiles[i]->start_id = PhastaIOActiveFiles[i]->nPPF *
+		(int)(PhastaIOActiveFiles[i]->myrank/PhastaIOActiveFiles[i]->local_numprocs) +
+		(PhastaIOActiveFiles[i]->local_myrank * PhastaIOActiveFiles[i]->nppp);
+
+	PhastaIOActiveFiles[i]->my_offset_table =
+		( unsigned long long ** ) calloc( MAX_FIELDS_NUMBER , sizeof( unsigned long long *) );
+	//( unsigned long long **)calloc( MAX_FIELDS_NUMBER + pool_align, sizeof(unsigned long long *) );
+	//mem_address = (long long )PhastaIOActiveFiles[i]->my_offset_table;
+	//if( mem_address & (pool_align -1) )
+	//	PhastaIOActiveFiles[i]->my_offset_table += pool_align - (mem_address & (pool_align -1));
+
+	PhastaIOActiveFiles[i]->my_read_table =
+		( unsigned long long ** ) calloc( MAX_FIELDS_NUMBER , sizeof( unsigned long long *) );
+	//( unsigned long long **)calloc( MAX_FIELDS_NUMBER + pool_align, sizeof( unsigned long long *) );
+	//mem_address = (long long )PhastaIOActiveFiles[i]->my_read_table;
+	//if( mem_address & (pool_align -1) )
+	//	PhastaIOActiveFiles[i]->my_read_table += pool_align - (mem_address & (pool_align -1));
+
+	for (j=0; j<*nfields; j++)
 	{
-		int i, j;
-
-		if( PhastaIONextActiveIndex == MAX_PHASTA_FILES ) {
-			return MAX_PHASTA_FILES_EXCEEDED;
-		}
-		//		else if( PhastaIONextActiveIndex == 0 )  //Hang in debug mode on Intrepid
-		//		{
-		//			for( i = 0; i < MAX_PHASTA_FILES; i++ );
-		//			{
-		//				PhastaIOActiveFiles[i] = NULL;
-		//			}
-		//		}
-
-
-		PhastaIOActiveFiles[PhastaIONextActiveIndex] = (phastaio_file_t *)calloc( 1,  sizeof( phastaio_file_t) );
-		//PhastaIOActiveFiles[PhastaIONextActiveIndex] = ( phastaio_file_t *)calloc( 1 + 1, sizeof( phastaio_file_t ) );
-		//mem_address = (long long )PhastaIOActiveFiles[PhastaIONextActiveIndex];
+		PhastaIOActiveFiles[i]->my_offset_table[j] =
+			( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nppp , sizeof( unsigned long long) );
+		//( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nppp + pool_align, sizeof( unsigned long long)  );
+		//mem_address = (long long )PhastaIOActiveFiles[i]->my_offset_table[j];
 		//if( mem_address & (pool_align -1) )
-		//	PhastaIOActiveFiles[PhastaIONextActiveIndex] += pool_align - (mem_address & (pool_align -1));
+		//	PhastaIOActiveFiles[i]->my_offset_table[j] += pool_align - (mem_address & (pool_align -1));
 
-		i = PhastaIONextActiveIndex;
-		PhastaIONextActiveIndex++;
-
-		//PhastaIOActiveFiles[i]->next_start_address = 2*TWO_MEGABYTE;
-
-		PhastaIOActiveFiles[i]->next_start_address = MasterHeaderSize;  // what does this mean??? TODO
-
-		PhastaIOActiveFiles[i]->Wrong_Endian = false;
-
-		PhastaIOActiveFiles[i]->nFields = *nfields;
-		PhastaIOActiveFiles[i]->nPPF = *nppf;
-		PhastaIOActiveFiles[i]->nFiles = *nfiles;
-		MPI_Comm_rank(MPI_COMM_WORLD, &(PhastaIOActiveFiles[i]->myrank));
-		MPI_Comm_size(MPI_COMM_WORLD, &(PhastaIOActiveFiles[i]->numprocs));
-
-		int color = computeColor(PhastaIOActiveFiles[i]->myrank, PhastaIOActiveFiles[i]->numprocs, PhastaIOActiveFiles[i]->nFiles);
-		MPI_Comm_split(MPI_COMM_WORLD,
-				color,
-				PhastaIOActiveFiles[i]->myrank,
-				&(PhastaIOActiveFiles[i]->local_comm));
-		MPI_Comm_size(PhastaIOActiveFiles[i]->local_comm,
-				&(PhastaIOActiveFiles[i]->local_numprocs));
-		MPI_Comm_rank(PhastaIOActiveFiles[i]->local_comm,
-				&(PhastaIOActiveFiles[i]->local_myrank));
-		PhastaIOActiveFiles[i]->nppp =
-			PhastaIOActiveFiles[i]->nPPF/PhastaIOActiveFiles[i]->local_numprocs;
-
-		PhastaIOActiveFiles[i]->start_id = PhastaIOActiveFiles[i]->nPPF *
-			(int)(PhastaIOActiveFiles[i]->myrank/PhastaIOActiveFiles[i]->local_numprocs) +
-			(PhastaIOActiveFiles[i]->local_myrank * PhastaIOActiveFiles[i]->nppp);
-
-		PhastaIOActiveFiles[i]->my_offset_table =
-			( unsigned long long ** ) calloc( MAX_FIELDS_NUMBER , sizeof( unsigned long long *) );
-		//( unsigned long long **)calloc( MAX_FIELDS_NUMBER + pool_align, sizeof(unsigned long long *) );
-		//mem_address = (long long )PhastaIOActiveFiles[i]->my_offset_table;
+		PhastaIOActiveFiles[i]->my_read_table[j] =
+			( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nppp , sizeof( unsigned long long) );
+		//( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nppp , sizeof( unsigned long long) + pool_align );
+		//mem_address = (long long )PhastaIOActiveFiles[i]->my_read_table[j];
 		//if( mem_address & (pool_align -1) )
-		//	PhastaIOActiveFiles[i]->my_offset_table += pool_align - (mem_address & (pool_align -1));
-
-		PhastaIOActiveFiles[i]->my_read_table =
-			( unsigned long long ** ) calloc( MAX_FIELDS_NUMBER , sizeof( unsigned long long *) );
-		//( unsigned long long **)calloc( MAX_FIELDS_NUMBER + pool_align, sizeof( unsigned long long *) );
-		//mem_address = (long long )PhastaIOActiveFiles[i]->my_read_table;
-		//if( mem_address & (pool_align -1) )
-		//	PhastaIOActiveFiles[i]->my_read_table += pool_align - (mem_address & (pool_align -1));
-
-		for (j=0; j<*nfields; j++)
-		{
-			PhastaIOActiveFiles[i]->my_offset_table[j] =
-				( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nppp , sizeof( unsigned long long) );
-			//( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nppp + pool_align, sizeof( unsigned long long)  );
-			//mem_address = (long long )PhastaIOActiveFiles[i]->my_offset_table[j];
-			//if( mem_address & (pool_align -1) )
-			//	PhastaIOActiveFiles[i]->my_offset_table[j] += pool_align - (mem_address & (pool_align -1));
-
-			PhastaIOActiveFiles[i]->my_read_table[j] =
-				( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nppp , sizeof( unsigned long long) );
-			//( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nppp , sizeof( unsigned long long) + pool_align );
-			//mem_address = (long long )PhastaIOActiveFiles[i]->my_read_table[j];
-			//if( mem_address & (pool_align -1) )
-			//	PhastaIOActiveFiles[i]->my_read_table[j] += pool_align - (mem_address & (pool_align -1));
-		}
-		*filehandle = i;
-
-		PhastaIOActiveFiles[i]->master_header = (char *)calloc(MasterHeaderSize,sizeof( char ));
-		PhastaIOActiveFiles[i]->double_chunk = (double *)calloc(1,sizeof( double ));
-		PhastaIOActiveFiles[i]->int_chunk = (int *)calloc(1,sizeof( int ));
-		PhastaIOActiveFiles[i]->read_double_chunk = (double *)calloc(1,sizeof( double ));
-		PhastaIOActiveFiles[i]->read_int_chunk = (int *)calloc(1,sizeof( int ));
-
-		/*
-			 PhastaIOActiveFiles[i]->master_header =
-			 ( char * ) calloc( MasterHeaderSize + pool_align, sizeof( char )  );
-			 mem_address = (long long )PhastaIOActiveFiles[i]->master_header;
-			 if( mem_address & (pool_align -1) )
-			 PhastaIOActiveFiles[i]->master_header += pool_align - (mem_address & (pool_align -1));
-
-			 PhastaIOActiveFiles[i]->double_chunk =
-			 ( double * ) calloc( 1 + pool_align , sizeof( double ) );
-			 mem_address = (long long )PhastaIOActiveFiles[i]->double_chunk;
-			 if( mem_address & (pool_align -1) )
-			 PhastaIOActiveFiles[i]->double_chunk += pool_align - (mem_address & (pool_align -1));
-
-			 PhastaIOActiveFiles[i]->int_chunk =
-			 ( int * ) calloc( 1 + pool_align , sizeof( int ) );
-			 mem_address = (long long )PhastaIOActiveFiles[i]->int_chunk;
-			 if( mem_address & (pool_align -1) )
-			 PhastaIOActiveFiles[i]->int_chunk += pool_align - (mem_address & (pool_align -1));
-
-			 PhastaIOActiveFiles[i]->read_double_chunk =
-			 ( double * ) calloc( 1 + pool_align , sizeof( double ) );
-			 mem_address = (long long )PhastaIOActiveFiles[i]->read_double_chunk;
-			 if( mem_address & (pool_align -1) )
-			 PhastaIOActiveFiles[i]->read_double_chunk += pool_align - (mem_address & (pool_align -1));
-
-			 PhastaIOActiveFiles[i]->read_int_chunk =
-			 ( int * ) calloc( 1 + pool_align , sizeof( int ) );
-			 mem_address = (long long )PhastaIOActiveFiles[i]->read_int_chunk;
-			 if( mem_address & (pool_align -1) )
-			 PhastaIOActiveFiles[i]->read_int_chunk += pool_align - (mem_address & (pool_align -1));
-			 */
-
-		// Time monitoring
-		MPI_Barrier(MPI_COMM_WORLD);
-		timer_end = rdtsc();
-		time_span=(double)((timer_end-timer_start)/clockRate);
-		if (PhastaIOActiveFiles[i]->myrank==0){
-			printf("\n*****************************\n");
-			printf("Time, initphmpiio is :   %f s (total # of files is %d, total # of fields is %d)\n",
-					time_span, *nfiles, *nfields);
-		}
-		return i;
+		//	PhastaIOActiveFiles[i]->my_read_table[j] += pool_align - (mem_address & (pool_align -1));
 	}
+	*filehandle = i;
+
+	PhastaIOActiveFiles[i]->master_header = (char *)calloc(MasterHeaderSize,sizeof( char ));
+	PhastaIOActiveFiles[i]->double_chunk = (double *)calloc(1,sizeof( double ));
+	PhastaIOActiveFiles[i]->int_chunk = (int *)calloc(1,sizeof( int ));
+	PhastaIOActiveFiles[i]->read_double_chunk = (double *)calloc(1,sizeof( double ));
+	PhastaIOActiveFiles[i]->read_int_chunk = (int *)calloc(1,sizeof( int ));
+
+	/*
+		 PhastaIOActiveFiles[i]->master_header =
+		 ( char * ) calloc( MasterHeaderSize + pool_align, sizeof( char )  );
+		 mem_address = (long long )PhastaIOActiveFiles[i]->master_header;
+		 if( mem_address & (pool_align -1) )
+		 PhastaIOActiveFiles[i]->master_header += pool_align - (mem_address & (pool_align -1));
+
+		 PhastaIOActiveFiles[i]->double_chunk =
+		 ( double * ) calloc( 1 + pool_align , sizeof( double ) );
+		 mem_address = (long long )PhastaIOActiveFiles[i]->double_chunk;
+		 if( mem_address & (pool_align -1) )
+		 PhastaIOActiveFiles[i]->double_chunk += pool_align - (mem_address & (pool_align -1));
+
+		 PhastaIOActiveFiles[i]->int_chunk =
+		 ( int * ) calloc( 1 + pool_align , sizeof( int ) );
+		 mem_address = (long long )PhastaIOActiveFiles[i]->int_chunk;
+		 if( mem_address & (pool_align -1) )
+		 PhastaIOActiveFiles[i]->int_chunk += pool_align - (mem_address & (pool_align -1));
+
+		 PhastaIOActiveFiles[i]->read_double_chunk =
+		 ( double * ) calloc( 1 + pool_align , sizeof( double ) );
+		 mem_address = (long long )PhastaIOActiveFiles[i]->read_double_chunk;
+		 if( mem_address & (pool_align -1) )
+		 PhastaIOActiveFiles[i]->read_double_chunk += pool_align - (mem_address & (pool_align -1));
+
+		 PhastaIOActiveFiles[i]->read_int_chunk =
+		 ( int * ) calloc( 1 + pool_align , sizeof( int ) );
+		 mem_address = (long long )PhastaIOActiveFiles[i]->read_int_chunk;
+		 if( mem_address & (pool_align -1) )
+		 PhastaIOActiveFiles[i]->read_int_chunk += pool_align - (mem_address & (pool_align -1));
+		 */
+
+	// Time monitoring
+	endTimer(&timer_end);
+	char extra_msg[1024];
+	memset(extra_msg, '\0', 1024);
+	sprintf(extra_msg, " total # of files is %d, total # of fields is %d ", *nfiles, *nfields);
+	printPerf("initphmpiio", timer_start, timer_end, -1, extra_msg);
+
+	return i;
 }
 
 void finalizephmpiio_( int *fileDescriptor )
 {
-	unsigned long long timer_start;
-	unsigned long long timer_end;
-	double time_span;
+	unsigned long long timer_start, timer_end;
+	startTimer(&timer_start);
 
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_start = rdtsc();
+	int i, j;
+	i = *fileDescriptor;
+	//PhastaIONextActiveIndex--;
 
+	/* //free the offset table for this phasta file */
+	for(j=0; j<MAX_FIELDS_NUMBER; j++)
 	{
-		int i, j;
-		i = *fileDescriptor;
-		PhastaIONextActiveIndex--;
-
-		/* //free the offset table for this phasta file */
-		for(j=0; j<MAX_FIELDS_NUMBER; j++)
-		{
-			free( PhastaIOActiveFiles[i]->my_offset_table[j]);
-			free( PhastaIOActiveFiles[i]->my_read_table[j]);
-		}
-		free ( PhastaIOActiveFiles[i]->my_offset_table );
-		free ( PhastaIOActiveFiles[i]->my_read_table );
-		free ( PhastaIOActiveFiles[i]->master_header );
-		free ( PhastaIOActiveFiles[i]->double_chunk );
-		free ( PhastaIOActiveFiles[i]->int_chunk );
-		free ( PhastaIOActiveFiles[i]->read_double_chunk );
-		free ( PhastaIOActiveFiles[i]->read_int_chunk );
-
-		free( PhastaIOActiveFiles[i]);
+		free( PhastaIOActiveFiles[i]->my_offset_table[j]);
+		free( PhastaIOActiveFiles[i]->my_read_table[j]);
 	}
+	free ( PhastaIOActiveFiles[i]->my_offset_table );
+	free ( PhastaIOActiveFiles[i]->my_read_table );
+	free ( PhastaIOActiveFiles[i]->master_header );
+	free ( PhastaIOActiveFiles[i]->double_chunk );
+	free ( PhastaIOActiveFiles[i]->int_chunk );
+	free ( PhastaIOActiveFiles[i]->read_double_chunk );
+	free ( PhastaIOActiveFiles[i]->read_int_chunk );
 
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_end = rdtsc();
-	time_span=(double)((timer_end-timer_start)/clockRate);
-	if (PhastaIOActiveFiles[*fileDescriptor]->myrank==0) {
-		printf("Time, finalizempiio is :   %f s\n",time_span);
-		printf("*****************************\n");
-	}
+	free( PhastaIOActiveFiles[i]);
 
+	endTimer(&timer_end);
+	printPerf("finalizempiio", timer_start, timer_end, -1, "");
+
+	PhastaIONextActiveIndex--;
 }
 
-void
-SwapArrayByteOrder_( void* array,
-		int   nbytes,
-		int   nItems ) {
-	/* This swaps the byte order for the array of nItems each
-		 of size nbytes , This will be called only locally  */
-	int i,j;
-	unsigned char* ucDst = (unsigned char*)array;
-
-	for(i=0; i < nItems; i++) {
-		for(j=0; j < (nbytes/2); j++)
-			std::swap( ucDst[j] , ucDst[(nbytes - 1) - j] );
-		ucDst += nbytes;
-	}
-}
-
-
-	void
-openfile_( const char filename[],
+void openfile_(
+		const char filename[],
 		const char mode[],
-		int*  fileDescriptor )
-{
-	MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+		int*  fileDescriptor ) {
+
+	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
 	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
 	//if(irank == 0) printf("entering openfile..\n");
 
-	unsigned long long timer_start;
-	unsigned long long timer_end;
-	double time_span;
+	unsigned long long timer_start, timer_end;
+	startTimer(&timer_start);
 
-	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_start = rdtsc();
+	int i = *fileDescriptor;
 
+	if ( PhastaIONextActiveIndex == 0 )
 	{
-		int i = *fileDescriptor;
+		FILE* file=NULL ;
+		*fileDescriptor = 0;
+		char* fname = StringStripper( filename );
+		char* imode = StringStripper( mode );
 
-		if ( PhastaIONextActiveIndex == 0 )
-		{
-			FILE* file=NULL ;
-			*fileDescriptor = 0;
-			char* fname = StringStripper( filename );
-			char* imode = StringStripper( mode );
+		if ( cscompare( "read", imode ) ) file = fopen(fname, "rb" );
+		else if( cscompare( "write", imode ) ) file = fopen(fname, "wb" );
+		else if( cscompare( "append", imode ) ) file = fopen(fname, "ab" );
 
-			if ( cscompare( "read", imode ) ) file = fopen(fname, "rb" );
-			else if( cscompare( "write", imode ) ) file = fopen(fname, "wb" );
-			else if( cscompare( "append", imode ) ) file = fopen(fname, "ab" );
-
-			if ( !file ){
-				fprintf(stderr,"unable to open file : %s\n",fname ) ;
-			} else {
-				fileArray.push_back( file );
-				byte_order.push_back( false );
-				header_type.push_back( sizeof(int) );
-				*fileDescriptor = fileArray.size();
-			}
-			free (fname);
-			free (imode);
+		if ( !file ){
+			fprintf(stderr,"unable to open file : %s\n",fname ) ;
+		} else {
+			fileArray.push_back( file );
+			byte_order.push_back( false );
+			header_type.push_back( sizeof(int) );
+			*fileDescriptor = fileArray.size();
 		}
-		else // else it would be parallel I/O, opposed to posix io
+		free (fname);
+		free (imode);
+	}
+	else // else it would be parallel I/O, opposed to posix io
+	{
+		char* fname = StringStripper( filename );
+		char* imode = StringStripper( mode );
+		int rc;
+		i = *fileDescriptor;
+		char* token;
+
+		if ( cscompare( "read", imode ) )
 		{
-			char* fname = StringStripper( filename );
-			char* imode = StringStripper( mode );
-			int rc;
-			i = *fileDescriptor;
-			char* token;
+			//	      if (PhastaIOActiveFiles[i]->myrank == 0)
+			//                printf("\n **********\nRead open ... ... regular version\n");
 
-			if ( cscompare( "read", imode ) )
+			rc = MPI_File_open( PhastaIOActiveFiles[i]->local_comm,
+					fname,
+					MPI_MODE_RDONLY,
+					MPI_INFO_NULL,
+					&(PhastaIOActiveFiles[i]->file_handle) );
+
+			if(rc)
 			{
-				//	      if (PhastaIOActiveFiles[i]->myrank == 0)
-				//                printf("\n **********\nRead open ... ... regular version\n");
+				*fileDescriptor = UNABLE_TO_OPEN_FILE;
+				printf("Unable to open file ... \n");
+				return;
+			}
 
-				rc = MPI_File_open( PhastaIOActiveFiles[i]->local_comm,
-						fname,
-						MPI_MODE_RDONLY,
-						MPI_INFO_NULL,
-						&(PhastaIOActiveFiles[i]->file_handle) );
+			MPI_Status read_tag_status;
+			char read_out_tag[MAX_FIELDS_NAME_LENGTH];
+			int j;
+			int magic_number;
 
-				if(rc)
-				{
-					*fileDescriptor = UNABLE_TO_OPEN_FILE;
-					printf("Unable to open file ... \n");
-					return;
-				}
-
-				MPI_Status read_tag_status;
-				char read_out_tag[MAX_FIELDS_NAME_LENGTH];
-				int j;
-				int magic_number;
-
-				if ( PhastaIOActiveFiles[i]->local_myrank == 0 ) {
-					MPI_File_read_at( PhastaIOActiveFiles[i]->file_handle,
-							0,
-							PhastaIOActiveFiles[i]->master_header,
-							MasterHeaderSize,
-							MPI_CHAR,
-							&read_tag_status );
-				}
-
-				MPI_Bcast( PhastaIOActiveFiles[i]->master_header,
+			if ( PhastaIOActiveFiles[i]->local_myrank == 0 ) {
+				MPI_File_read_at( PhastaIOActiveFiles[i]->file_handle,
+						0,
+						PhastaIOActiveFiles[i]->master_header,
 						MasterHeaderSize,
 						MPI_CHAR,
-						0,
-						PhastaIOActiveFiles[i]->local_comm );
-
-				memcpy( read_out_tag,
-						PhastaIOActiveFiles[i]->master_header,
-						MAX_FIELDS_NAME_LENGTH-1 );
-
-				if ( cscompare ("MPI_IO_Tag",read_out_tag) )
-				{
-					// Test endianess ...
-					memcpy ( &magic_number,
-							PhastaIOActiveFiles[i]->master_header+sizeof("MPI_IO_Tag : ")-1, //-1 sizeof returns the size of the string+1 for "\0"
-							sizeof(int) );                                                   // masterheader should look like "MPI_IO_Tag : 12180 " with 12180 in binary format
-
-					if ( magic_number != ENDIAN_TEST_NUMBER )
-					{
-						PhastaIOActiveFiles[i]->Wrong_Endian = true;
-					}
-
-					memcpy( read_out_tag,
-							PhastaIOActiveFiles[i]->master_header+MAX_FIELDS_NAME_LENGTH+1, // TODO: WHY +1???
-							MAX_FIELDS_NAME_LENGTH );
-
-					// Read in # fields ...
-					token = strtok ( read_out_tag, ":" );
-					token = strtok( NULL," ,;<>" );
-					PhastaIOActiveFiles[i]->nFields = atoi( token );
-
-					unsigned long long **header_table;
-					header_table = ( unsigned long long ** )calloc(PhastaIOActiveFiles[i]->nFields, sizeof(unsigned long long *));
-					//header_table = ( unsigned long long ** ) calloc( PhastaIOActiveFiles[i]->nFields  + pool_align, sizeof(unsigned long long *));
-					//mem_address = (long long )header_table;
-					//if( mem_address & (pool_align -1) )
-					//	header_table += pool_align - (mem_address & (pool_align -1));
-
-					for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ )
-					{
-						header_table[j]=( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nPPF , sizeof( unsigned long long));
-						//header_table[j]=( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nPPF + pool_align, sizeof(unsigned long long *));
-						//mem_address = (long long )header_table[j];
-						//if( mem_address & (pool_align -1) )
-						//	header_table[j] += pool_align - (mem_address & (pool_align -1));
-					}
-
-					// Read in the offset table ...
-					for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ )
-					{
-						memcpy( header_table[j],
-								PhastaIOActiveFiles[i]->master_header +
-								VERSION_INFO_HEADER_SIZE +
-								j * PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long),
-								PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long) );
-
-						MPI_Scatter( header_table[j],
-								PhastaIOActiveFiles[i]->nppp,
-								MPI_LONG_LONG_INT,
-								PhastaIOActiveFiles[i]->my_read_table[j],
-								PhastaIOActiveFiles[i]->nppp,
-								MPI_LONG_LONG_INT,
-								0,
-								PhastaIOActiveFiles[i]->local_comm );
-
-						// Swap byte order if endianess is different ...
-						if ( PhastaIOActiveFiles[i]->Wrong_Endian ) {
-							SwapArrayByteOrder_( PhastaIOActiveFiles[i]->my_read_table[j],
-									sizeof(long long int),
-									PhastaIOActiveFiles[i]->nppp );
-						}
-					}
-				} // end of if MPI_IO_TAG
-				else //else not valid MPI file
-				{
-					*fileDescriptor = NOT_A_MPI_FILE;
-					return;
-				}
-			} // end of if "read"
-			else if( cscompare( "write", imode ) )
-			{
-				rc = MPI_File_open( PhastaIOActiveFiles[i]->local_comm,
-						fname,
-						MPI_MODE_WRONLY | MPI_MODE_CREATE,
-						MPI_INFO_NULL,
-						&(PhastaIOActiveFiles[i]->file_handle) );
-				if(rc)
-				{
-					*fileDescriptor = UNABLE_TO_OPEN_FILE;
-					return;
-				}
-			} // end of if "write"
-		} // end of if FileIndex != 0
-	} //
-
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_end = rdtsc();
-	time_span=(double)((timer_end-timer_start)/clockRate);
-	//if(PhastaIOActiveFiles[*fileDescriptor]->myrank==0) {
-	if(irank==0) {
-		printf("Time, openfile is :   %f s\n",time_span);
-		printf("\n");
-	}
-}
-
-	void
-closefile_( int* fileDescriptor,
-		const char mode[] )
-{
-	unsigned long long timer_start;
-	unsigned long long timer_end;
-	double time_span;
-
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_start = rdtsc();
-
-	{
-		int i = *fileDescriptor;
-
-		if ( PhastaIONextActiveIndex == 0 ) {
-			char* imode = StringStripper( mode );
-
-			if( cscompare( "write", imode )
-					|| cscompare( "append", imode ) ) {
-				fflush( fileArray[ *fileDescriptor - 1 ] );
+						&read_tag_status );
 			}
 
-			fclose( fileArray[ *fileDescriptor - 1 ] );
-			free (imode);
-		}
-		else {
-			char* imode = StringStripper( mode );
+			MPI_Bcast( PhastaIOActiveFiles[i]->master_header,
+					MasterHeaderSize,
+					MPI_CHAR,
+					0,
+					PhastaIOActiveFiles[i]->local_comm );
 
-			//write master header here:
-			if ( cscompare( "write", imode ) ) {
-				//	      if ( PhastaIOActiveFiles[i]->nPPF * PhastaIOActiveFiles[i]->nFields < 2*ONE_MEGABYTE/8 )  //SHOULD BE CHECKED
-				//		MasterHeaderSize = 4*ONE_MEGABYTE;
-				//	      else
-				//		MasterHeaderSize = 4*ONE_MEGABYTE + PhastaIOActiveFiles[i]->nPPF * PhastaIOActiveFiles[i]->nFields * 8 - 2*ONE_MEGABYTE;
+			memcpy( read_out_tag,
+					PhastaIOActiveFiles[i]->master_header,
+					MAX_FIELDS_NAME_LENGTH-1 );
 
-				MasterHeaderSize = computeMHSize( PhastaIOActiveFiles[i]->nFields, PhastaIOActiveFiles[i]->nPPF, LATEST_WRITE_VERSION);
-				if(irank == 0) printf("in closefile(): mhsize = %d, myrank = %d\n", MasterHeaderSize, irank);
+			if ( cscompare ("MPI_IO_Tag",read_out_tag) )
+			{
+				// Test endianess ...
+				memcpy ( &magic_number,
+						PhastaIOActiveFiles[i]->master_header+sizeof("MPI_IO_Tag : ")-1, //-1 sizeof returns the size of the string+1 for "\0"
+						sizeof(int) );                                                   // masterheader should look like "MPI_IO_Tag : 12180 " with 12180 in binary format
 
-				MPI_Status write_header_status;
-				char mpi_tag[MAX_FIELDS_NAME_LENGTH];
-				char version[MAX_FIELDS_NAME_LENGTH/4];
-				char mhsize[MAX_FIELDS_NAME_LENGTH/4];
-				int magic_number = ENDIAN_TEST_NUMBER;
-
-				if ( PhastaIOActiveFiles[i]->local_myrank == 0 )
+				if ( magic_number != ENDIAN_TEST_NUMBER )
 				{
-					bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
-					sprintf(mpi_tag, "MPI_IO_Tag : ");
-					memcpy(PhastaIOActiveFiles[i]->master_header,
-							mpi_tag,
-							MAX_FIELDS_NAME_LENGTH);
-
-					bzero((void*)version,MAX_FIELDS_NAME_LENGTH/4);
-					// this version is "1", print version in ASCII
-					sprintf(version, "version : %d",1);
-					memcpy(PhastaIOActiveFiles[i]->master_header + MAX_FIELDS_NAME_LENGTH/2,
-							version,
-							MAX_FIELDS_NAME_LENGTH/4);
-
-					// master header size is computed using the formula above
-					bzero((void*)mhsize,MAX_FIELDS_NAME_LENGTH/4);
-					sprintf(mhsize, "mhsize : ");
-					memcpy(PhastaIOActiveFiles[i]->master_header + MAX_FIELDS_NAME_LENGTH/4*3,
-							mhsize,
-							MAX_FIELDS_NAME_LENGTH/4);
-
-					bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
-					sprintf(mpi_tag,
-							"\nnFields : %d\n",
-							PhastaIOActiveFiles[i]->nFields);
-					memcpy(PhastaIOActiveFiles[i]->master_header+MAX_FIELDS_NAME_LENGTH,
-							mpi_tag,
-							MAX_FIELDS_NAME_LENGTH);
-
-					bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
-					sprintf(mpi_tag, "\nnPPF : %d\n", PhastaIOActiveFiles[i]->nPPF);
-					memcpy( PhastaIOActiveFiles[i]->master_header+
-							PhastaIOActiveFiles[i]->nFields *
-							MAX_FIELDS_NAME_LENGTH +
-							MAX_FIELDS_NAME_LENGTH * 2,
-							mpi_tag,
-							MAX_FIELDS_NAME_LENGTH);
-
-					memcpy( PhastaIOActiveFiles[i]->master_header+sizeof("MPI_IO_Tag : ")-1, //-1 sizeof returns the size of the string+1 for "\0"
-							&magic_number,
-							sizeof(int));
-
-					memcpy( PhastaIOActiveFiles[i]->master_header+sizeof("mhsize : ") -1 + MAX_FIELDS_NAME_LENGTH/4*3,
-							&MasterHeaderSize,
-							sizeof(int));
+					PhastaIOActiveFiles[i]->Wrong_Endian = true;
 				}
 
-				int j = 0;
+				memcpy( read_out_tag,
+						PhastaIOActiveFiles[i]->master_header+MAX_FIELDS_NAME_LENGTH+1, // TODO: WHY +1???
+						MAX_FIELDS_NAME_LENGTH );
+
+				// Read in # fields ...
+				token = strtok ( read_out_tag, ":" );
+				token = strtok( NULL," ,;<>" );
+				PhastaIOActiveFiles[i]->nFields = atoi( token );
+
 				unsigned long long **header_table;
 				header_table = ( unsigned long long ** )calloc(PhastaIOActiveFiles[i]->nFields, sizeof(unsigned long long *));
 				//header_table = ( unsigned long long ** ) calloc( PhastaIOActiveFiles[i]->nFields  + pool_align, sizeof(unsigned long long *));
@@ -1029,445 +820,538 @@ closefile_( int* fileDescriptor,
 				//if( mem_address & (pool_align -1) )
 				//	header_table += pool_align - (mem_address & (pool_align -1));
 
-				for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
+				for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ )
+				{
 					header_table[j]=( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nPPF , sizeof( unsigned long long));
-					//header_table[j]=( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nPPF + pool_align, sizeof (unsigned long long *));
+					//header_table[j]=( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nPPF + pool_align, sizeof(unsigned long long *));
 					//mem_address = (long long )header_table[j];
 					//if( mem_address & (pool_align -1) )
-					//	header_table[j] += pool_align - (mem_address & (pool_align - 1));
+					//	header_table[j] += pool_align - (mem_address & (pool_align -1));
 				}
 
-				//if( irank == 0 ) printf("gonna mpi_gather, myrank = %d\n", irank);
-				for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
-					MPI_Gather( PhastaIOActiveFiles[i]->my_offset_table[j],
+				// Read in the offset table ...
+				for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ )
+				{
+					memcpy( header_table[j],
+							PhastaIOActiveFiles[i]->master_header +
+							VERSION_INFO_HEADER_SIZE +
+							j * PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long),
+							PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long) );
+
+					MPI_Scatter( header_table[j],
 							PhastaIOActiveFiles[i]->nppp,
 							MPI_LONG_LONG_INT,
-							header_table[j],
+							PhastaIOActiveFiles[i]->my_read_table[j],
 							PhastaIOActiveFiles[i]->nppp,
 							MPI_LONG_LONG_INT,
 							0,
 							PhastaIOActiveFiles[i]->local_comm );
-				}
 
-				//if( irank == 0 ) printf("gonna memcpy for every procs, myrank = %d\n", irank);
-				for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
-					memcpy ( PhastaIOActiveFiles[i]->master_header +
-							VERSION_INFO_HEADER_SIZE +
-							j * PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long),
-							header_table[j],
-							PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long) );
+					// Swap byte order if endianess is different ...
+					if ( PhastaIOActiveFiles[i]->Wrong_Endian ) {
+						SwapArrayByteOrder_( PhastaIOActiveFiles[i]->my_read_table[j],
+								sizeof(long long int),
+								PhastaIOActiveFiles[i]->nppp );
+					}
 				}
-
-				//if( irank == 0 ) printf("gonna file_write_at(), myrank = %d\n", irank);
-				if ( PhastaIOActiveFiles[i]->local_myrank == 0 ) {
-					MPI_File_write_at( PhastaIOActiveFiles[i]->file_handle,
-							0,
-							PhastaIOActiveFiles[i]->master_header,
-							MasterHeaderSize,
-							MPI_CHAR,
-							&write_header_status );
-				}
-
-				////free(PhastaIOActiveFiles[i]->master_header);
-
-				for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
-					free ( header_table[j] );
-				}
-				free (header_table);
+			} // end of if MPI_IO_TAG
+			else //else not valid MPI file
+			{
+				*fileDescriptor = NOT_A_MPI_FILE;
+				return;
 			}
+		} // end of if "read"
+		else if( cscompare( "write", imode ) )
+		{
+			rc = MPI_File_open( PhastaIOActiveFiles[i]->local_comm,
+					fname,
+					MPI_MODE_WRONLY | MPI_MODE_CREATE,
+					MPI_INFO_NULL,
+					&(PhastaIOActiveFiles[i]->file_handle) );
+			if(rc)
+			{
+				*fileDescriptor = UNABLE_TO_OPEN_FILE;
+				return;
+			}
+		} // end of if "write"
+	} // end of if FileIndex != 0
 
-			//if( irank == 0 ) printf("gonna file_close(), myrank = %d\n", irank);
-			MPI_File_close( &( PhastaIOActiveFiles[i]->file_handle ) );
-			free ( imode );
-		}
-	}
-
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_end = rdtsc();
-	time_span=(double)((timer_end-timer_start)/clockRate);
-	if(irank==0) {
-		printf("\n");
-		printf("Time, closefile is :   %f s\n",time_span);
-	}
+	endTimer(&timer_end);
+	printPerf("openfile_", timer_start, timer_end, -1, "");
 }
 
-	void
-readheader_( int* fileDescriptor,
+void closefile_(
+		int* fileDescriptor,
+		const char mode[] ) {
+
+	unsigned long long timer_start, timer_end;
+	startTimer(&timer_start);
+
+	int i = *fileDescriptor;
+
+	if ( PhastaIONextActiveIndex == 0 ) {
+		char* imode = StringStripper( mode );
+
+		if( cscompare( "write", imode )
+				|| cscompare( "append", imode ) ) {
+			fflush( fileArray[ *fileDescriptor - 1 ] );
+		}
+
+		fclose( fileArray[ *fileDescriptor - 1 ] );
+		free (imode);
+	}
+	else {
+		char* imode = StringStripper( mode );
+
+		//write master header here:
+		if ( cscompare( "write", imode ) ) {
+			//	      if ( PhastaIOActiveFiles[i]->nPPF * PhastaIOActiveFiles[i]->nFields < 2*ONE_MEGABYTE/8 )  //SHOULD BE CHECKED
+			//		MasterHeaderSize = 4*ONE_MEGABYTE;
+			//	      else
+			//		MasterHeaderSize = 4*ONE_MEGABYTE + PhastaIOActiveFiles[i]->nPPF * PhastaIOActiveFiles[i]->nFields * 8 - 2*ONE_MEGABYTE;
+
+			MasterHeaderSize = computeMHSize( PhastaIOActiveFiles[i]->nFields, PhastaIOActiveFiles[i]->nPPF, LATEST_WRITE_VERSION);
+			if(irank == 0) printf("in closefile(): mhsize = %d, myrank = %d\n", MasterHeaderSize, irank);
+
+			MPI_Status write_header_status;
+			char mpi_tag[MAX_FIELDS_NAME_LENGTH];
+			char version[MAX_FIELDS_NAME_LENGTH/4];
+			char mhsize[MAX_FIELDS_NAME_LENGTH/4];
+			int magic_number = ENDIAN_TEST_NUMBER;
+
+			if ( PhastaIOActiveFiles[i]->local_myrank == 0 )
+			{
+				bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
+				sprintf(mpi_tag, "MPI_IO_Tag : ");
+				memcpy(PhastaIOActiveFiles[i]->master_header,
+						mpi_tag,
+						MAX_FIELDS_NAME_LENGTH);
+
+				bzero((void*)version,MAX_FIELDS_NAME_LENGTH/4);
+				// this version is "1", print version in ASCII
+				sprintf(version, "version : %d",1);
+				memcpy(PhastaIOActiveFiles[i]->master_header + MAX_FIELDS_NAME_LENGTH/2,
+						version,
+						MAX_FIELDS_NAME_LENGTH/4);
+
+				// master header size is computed using the formula above
+				bzero((void*)mhsize,MAX_FIELDS_NAME_LENGTH/4);
+				sprintf(mhsize, "mhsize : ");
+				memcpy(PhastaIOActiveFiles[i]->master_header + MAX_FIELDS_NAME_LENGTH/4*3,
+						mhsize,
+						MAX_FIELDS_NAME_LENGTH/4);
+
+				bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
+				sprintf(mpi_tag,
+						"\nnFields : %d\n",
+						PhastaIOActiveFiles[i]->nFields);
+				memcpy(PhastaIOActiveFiles[i]->master_header+MAX_FIELDS_NAME_LENGTH,
+						mpi_tag,
+						MAX_FIELDS_NAME_LENGTH);
+
+				bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
+				sprintf(mpi_tag, "\nnPPF : %d\n", PhastaIOActiveFiles[i]->nPPF);
+				memcpy( PhastaIOActiveFiles[i]->master_header+
+						PhastaIOActiveFiles[i]->nFields *
+						MAX_FIELDS_NAME_LENGTH +
+						MAX_FIELDS_NAME_LENGTH * 2,
+						mpi_tag,
+						MAX_FIELDS_NAME_LENGTH);
+
+				memcpy( PhastaIOActiveFiles[i]->master_header+sizeof("MPI_IO_Tag : ")-1, //-1 sizeof returns the size of the string+1 for "\0"
+						&magic_number,
+						sizeof(int));
+
+				memcpy( PhastaIOActiveFiles[i]->master_header+sizeof("mhsize : ") -1 + MAX_FIELDS_NAME_LENGTH/4*3,
+						&MasterHeaderSize,
+						sizeof(int));
+			}
+
+			int j = 0;
+			unsigned long long **header_table;
+			header_table = ( unsigned long long ** )calloc(PhastaIOActiveFiles[i]->nFields, sizeof(unsigned long long *));
+			//header_table = ( unsigned long long ** ) calloc( PhastaIOActiveFiles[i]->nFields  + pool_align, sizeof(unsigned long long *));
+			//mem_address = (long long )header_table;
+			//if( mem_address & (pool_align -1) )
+			//	header_table += pool_align - (mem_address & (pool_align -1));
+
+			for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
+				header_table[j]=( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nPPF , sizeof( unsigned long long));
+				//header_table[j]=( unsigned long long * ) calloc( PhastaIOActiveFiles[i]->nPPF + pool_align, sizeof (unsigned long long *));
+				//mem_address = (long long )header_table[j];
+				//if( mem_address & (pool_align -1) )
+				//	header_table[j] += pool_align - (mem_address & (pool_align - 1));
+			}
+
+			//if( irank == 0 ) printf("gonna mpi_gather, myrank = %d\n", irank);
+			for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
+				MPI_Gather( PhastaIOActiveFiles[i]->my_offset_table[j],
+						PhastaIOActiveFiles[i]->nppp,
+						MPI_LONG_LONG_INT,
+						header_table[j],
+						PhastaIOActiveFiles[i]->nppp,
+						MPI_LONG_LONG_INT,
+						0,
+						PhastaIOActiveFiles[i]->local_comm );
+			}
+
+			//if( irank == 0 ) printf("gonna memcpy for every procs, myrank = %d\n", irank);
+			for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
+				memcpy ( PhastaIOActiveFiles[i]->master_header +
+						VERSION_INFO_HEADER_SIZE +
+						j * PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long),
+						header_table[j],
+						PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long) );
+			}
+
+			//if( irank == 0 ) printf("gonna file_write_at(), myrank = %d\n", irank);
+			if ( PhastaIOActiveFiles[i]->local_myrank == 0 ) {
+				MPI_File_write_at( PhastaIOActiveFiles[i]->file_handle,
+						0,
+						PhastaIOActiveFiles[i]->master_header,
+						MasterHeaderSize,
+						MPI_CHAR,
+						&write_header_status );
+			}
+
+			////free(PhastaIOActiveFiles[i]->master_header);
+
+			for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
+				free ( header_table[j] );
+			}
+			free (header_table);
+		}
+
+		//if( irank == 0 ) printf("gonna file_close(), myrank = %d\n", irank);
+		MPI_File_close( &( PhastaIOActiveFiles[i]->file_handle ) );
+		free ( imode );
+	}
+
+	endTimer(&timer_end);
+	printPerf("closefile_", timer_start, timer_end, -1, "");
+}
+
+void readheader_(
+		int* fileDescriptor,
 		const  char keyphrase[],
 		void* valueArray,
 		int*  nItems,
 		const char  datatype[],
-		const char  iotype[] )
-{
+		const char  iotype[] ) {
 
+	unsigned long long timer_start, timer_end;
+	startTimer(&timer_start);
 	//if(irank == 0) printf("entering readheader()\n");
-	unsigned long long timer_start;
-	unsigned long long timer_end;
-	double time_span;
 
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_start = rdtsc();
+	int i = *fileDescriptor;
 
-	{
-		int i = *fileDescriptor;
+	if ( PhastaIONextActiveIndex == 0 ) {
+		int filePtr = *fileDescriptor - 1;
+		FILE* fileObject;
+		int* valueListInt;
 
-		if ( PhastaIONextActiveIndex == 0 )
-		{
-			int filePtr = *fileDescriptor - 1;
-			FILE* fileObject;
-			int* valueListInt;
-
-			if ( *fileDescriptor < 1 || *fileDescriptor > (int)fileArray.size() ) {
-				fprintf(stderr,"No file associated with Descriptor %d\n",*fileDescriptor);
-				fprintf(stderr,"openfile_ function has to be called before \n") ;
-				fprintf(stderr,"acessing the file\n ") ;
-				fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
-				return;
-			}
-
-			LastHeaderKey[ filePtr ] = const_cast< char* >( keyphrase );
-			LastHeaderNotFound = false;
-
-			fileObject = fileArray[ filePtr ] ;
-			Wrong_Endian = byte_order[ filePtr ];
-
-			isBinary( iotype );
-			typeSize( datatype );   //redundant call, just avoid a compiler warning.
-
-			// right now we are making the assumption that we will only write integers
-			// on the header line.
-
-			valueListInt = static_cast< int* >( valueArray );
-			int ierr = readHeader( fileObject ,
-					keyphrase,
-					valueListInt,
-					*nItems ) ;
-
-			byte_order[ filePtr ] = Wrong_Endian ;
-
-			if ( ierr ) LastHeaderNotFound = true;
-
-			return ;
+		if ( *fileDescriptor < 1 || *fileDescriptor > (int)fileArray.size() ) {
+			fprintf(stderr,"No file associated with Descriptor %d\n",*fileDescriptor);
+			fprintf(stderr,"openfile_ function has to be called before \n") ;
+			fprintf(stderr,"acessing the file\n ") ;
+			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+			return;
 		}
-		else
+
+		LastHeaderKey[ filePtr ] = const_cast< char* >( keyphrase );
+		LastHeaderNotFound = false;
+
+		fileObject = fileArray[ filePtr ] ;
+		Wrong_Endian = byte_order[ filePtr ];
+
+		isBinary( iotype );
+		typeSize( datatype );   //redundant call, just avoid a compiler warning.
+
+		// right now we are making the assumption that we will only write integers
+		// on the header line.
+
+		valueListInt = static_cast< int* >( valueArray );
+		int ierr = readHeader( fileObject ,
+				keyphrase,
+				valueListInt,
+				*nItems ) ;
+
+		byte_order[ filePtr ] = Wrong_Endian ;
+
+		if ( ierr ) LastHeaderNotFound = true;
+
+		//return ; // don't return, go to the end to print perf
+	}
+	else {
+		unsigned int skip_size;
+		int* valueListInt;
+		valueListInt = static_cast <int*>(valueArray);
+		char* token;
+		bool FOUND = false ;
+		isBinary( iotype );
+
+		MPI_Status read_offset_status;
+		char read_out_tag[MAX_FIELDS_NAME_LENGTH];
+		char readouttag[MAX_FIELDS_NUMBER][MAX_FIELDS_NAME_LENGTH];
+		int j;
+
+		int string_length = strlen( keyphrase );
+		char* buffer = (char*) malloc ( string_length+1 );
+		//char* buffer = ( char * ) malloc( string_length + 1 + pool_align );
+		//mem_address = (long long )buffer;
+		//if( mem_address & (pool_align -1) )
+		//  buffer += pool_align - (mem_address & (pool_align -1));
+
+		strcpy ( buffer, keyphrase );
+		buffer[ string_length ] = '\0';
+
+		char* st2 = strtok ( buffer, "@" );
+		st2 = strtok (NULL, "@");
+		PhastaIOActiveFiles[i]->GPid = atoi(st2);
+		if ( char* p = strpbrk(buffer, "@") )
+			*p = '\0';
+
+		// Check if the user has input the right GPid
+		if ( ( PhastaIOActiveFiles[i]->GPid <=
+					PhastaIOActiveFiles[i]->myrank *
+					PhastaIOActiveFiles[i]->nppp )||
+				( PhastaIOActiveFiles[i]->GPid >
+					( PhastaIOActiveFiles[i]->myrank + 1 ) *
+					PhastaIOActiveFiles[i]->nppp ) )
 		{
-			unsigned int skip_size;
-			int* valueListInt;
-			valueListInt = static_cast <int*>(valueArray);
-			char* token;
-			bool FOUND = false ;
-			isBinary( iotype );
+			*fileDescriptor = NOT_A_MPI_FILE;
+			printf("The file is not new format, please check ...\n");
+			return;
+		}
 
-			MPI_Status read_offset_status;
-			char read_out_tag[MAX_FIELDS_NAME_LENGTH];
-			char readouttag[MAX_FIELDS_NUMBER][MAX_FIELDS_NAME_LENGTH];
-			int j;
+		// Find the field we want ...
+		//for ( j = 0; j<MAX_FIELDS_NUMBER; j++ )
+		for ( j = 0; j<PhastaIOActiveFiles[i]->nFields; j++ )
+		{
+			memcpy( readouttag[j],
+					PhastaIOActiveFiles[i]->master_header + j*MAX_FIELDS_NAME_LENGTH+MAX_FIELDS_NAME_LENGTH*2+1,
+					MAX_FIELDS_NAME_LENGTH-1 );
+		}
 
-			int string_length = strlen( keyphrase );
-			char* buffer = (char*) malloc ( string_length+1 );
-			//char* buffer = ( char * ) malloc( string_length + 1 + pool_align );
-			//mem_address = (long long )buffer;
-			//if( mem_address & (pool_align -1) )
-			//  buffer += pool_align - (mem_address & (pool_align -1));
+		for ( j = 0; j<PhastaIOActiveFiles[i]->nFields; j++ )
+		{
+			token = strtok ( readouttag[j], ":" );
 
-			strcpy ( buffer, keyphrase );
-			buffer[ string_length ] = '\0';
-
-			char* st2 = strtok ( buffer, "@" );
-			st2 = strtok (NULL, "@");
-			PhastaIOActiveFiles[i]->GPid = atoi(st2);
-			if ( char* p = strpbrk(buffer, "@") )
-				*p = '\0';
-
-			// Check if the user has input the right GPid
-			if ( ( PhastaIOActiveFiles[i]->GPid <=
-						PhastaIOActiveFiles[i]->myrank *
-						PhastaIOActiveFiles[i]->nppp )||
-					( PhastaIOActiveFiles[i]->GPid >
-						( PhastaIOActiveFiles[i]->myrank + 1 ) *
-						PhastaIOActiveFiles[i]->nppp ) )
+			if ( cscompare( buffer, token ) )
 			{
-				*fileDescriptor = NOT_A_MPI_FILE;
-				printf("The file is not new format, please check ...\n");
-				return;
+				PhastaIOActiveFiles[i]->read_field_count = j;
+				FOUND = true;
+				break;
 			}
+		}
 
-			// Find the field we want ...
-			//for ( j = 0; j<MAX_FIELDS_NUMBER; j++ )
-			for ( j = 0; j<PhastaIOActiveFiles[i]->nFields; j++ )
-			{
-				memcpy( readouttag[j],
-						PhastaIOActiveFiles[i]->master_header + j*MAX_FIELDS_NAME_LENGTH+MAX_FIELDS_NAME_LENGTH*2+1,
-						MAX_FIELDS_NAME_LENGTH-1 );
+		if (!FOUND)
+		{
+			//MR CHANGE
+			//              printf("Not found %s \n",keyphrase);
+			//int myrank;
+			//MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+			if(irank==0) {
+				printf("Not found %s \n",keyphrase);
 			}
+			//MR CHANGE END
+			return;
+		}
 
-			for ( j = 0; j<PhastaIOActiveFiles[i]->nFields; j++ )
+		// Find the part we want ...
+		PhastaIOActiveFiles[i]->read_part_count = PhastaIOActiveFiles[i]->GPid -
+			PhastaIOActiveFiles[i]->myrank * PhastaIOActiveFiles[i]->nppp - 1;
+
+		PhastaIOActiveFiles[i]->my_offset =
+			PhastaIOActiveFiles[i]->my_read_table[PhastaIOActiveFiles[i]->read_field_count][PhastaIOActiveFiles[i]->read_part_count];
+
+		// 	  printf("****Rank %d offset is %d\n",PhastaIOActiveFiles[i]->myrank,PhastaIOActiveFiles[i]->my_offset);
+
+		// Read each datablock header here ...
+
+		MPI_File_read_at_all( PhastaIOActiveFiles[i]->file_handle,
+				PhastaIOActiveFiles[i]->my_offset+1,
+				read_out_tag,
+				MAX_FIELDS_NAME_LENGTH-1,
+				MPI_CHAR,
+				&read_offset_status );
+		token = strtok ( read_out_tag, ":" );
+
+		// 	  printf("&&&&Rank %d read_out_tag is %s\n",PhastaIOActiveFiles[i]->myrank,read_out_tag);
+
+		if( cscompare( keyphrase , token ) )
+		{
+			FOUND = true ;
+			token = strtok( NULL, " ,;<>" );
+			skip_size = atoi( token );
+			for( j=0; j < *nItems && ( token = strtok( NULL," ,;<>") ); j++ )
+				valueListInt[j] = atoi( token );
+
+			if ( j < *nItems )
 			{
-				token = strtok ( readouttag[j], ":" );
-
-				if ( cscompare( buffer, token ) )
-				{
-					PhastaIOActiveFiles[i]->read_field_count = j;
-					FOUND = true;
-					break;
-				}
-			}
-
-			if (!FOUND)
-			{
-				//MR CHANGE
-				//              printf("Not found %s \n",keyphrase);
-				//int myrank;
-				//MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
-				if(myrank==0) {
-					printf("Not found %s \n",keyphrase);
-				}
-				//MR CHANGE END
-				return;
-			}
-
-			// Find the part we want ...
-			PhastaIOActiveFiles[i]->read_part_count = PhastaIOActiveFiles[i]->GPid -
-				PhastaIOActiveFiles[i]->myrank * PhastaIOActiveFiles[i]->nppp - 1;
-
-			PhastaIOActiveFiles[i]->my_offset =
-				PhastaIOActiveFiles[i]->my_read_table[PhastaIOActiveFiles[i]->read_field_count][PhastaIOActiveFiles[i]->read_part_count];
-
-			// 	  printf("****Rank %d offset is %d\n",PhastaIOActiveFiles[i]->myrank,PhastaIOActiveFiles[i]->my_offset);
-
-			// Read each datablock header here ...
-
-			MPI_File_read_at_all( PhastaIOActiveFiles[i]->file_handle,
-					PhastaIOActiveFiles[i]->my_offset+1,
-					read_out_tag,
-					MAX_FIELDS_NAME_LENGTH-1,
-					MPI_CHAR,
-					&read_offset_status );
-			token = strtok ( read_out_tag, ":" );
-
-			// 	  printf("&&&&Rank %d read_out_tag is %s\n",PhastaIOActiveFiles[i]->myrank,read_out_tag);
-
-			if( cscompare( keyphrase , token ) )
-			{
-				FOUND = true ;
-				token = strtok( NULL, " ,;<>" );
-				skip_size = atoi( token );
-				for( j=0; j < *nItems && ( token = strtok( NULL," ,;<>") ); j++ )
-					valueListInt[j] = atoi( token );
-
-				if ( j < *nItems )
-				{
-					fprintf( stderr, "Expected # of ints not found for: %s\n", keyphrase );
-				}
+				fprintf( stderr, "Expected # of ints not found for: %s\n", keyphrase );
 			}
 		}
 	}
 
-	//  char* type = (char*) malloc ( 20 );
-	//  if ( PhastaIONextActiveIndex == 0 )
-	//      type="POSIX IO";
-	//  else
-	//      type="Parallel IO";
-
-	// Time monitoring
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_end = rdtsc();
-	time_span=(double)((timer_end-timer_start)/clockRate);
-	//if (PhastaIOActiveFiles[*fileDescriptor]->myrank==0) {
-	if (irank==0) {
-		//      printf(" Read IO type: %s \n Time, readheader %s  is :    %f s\n",
-		//	     type,StringStripper(keyphrase),time_span);
-		printf("Time, readheader %s  is :    %f s\n",
-				StringStripper(keyphrase),time_span);
-	}
+	endTimer(&timer_end);
+	char extra_msg[1024];
+	memset(extra_msg, '\0', 1024);
+	char* key = StringStripper(keyphrase);
+	sprintf(extra_msg, " field is %s ", key);
+	printPerf("readheader", timer_start, timer_end, -1, extra_msg);
 
 }
 
-	void
-readdatablock_( int*  fileDescriptor,
+void readdatablock_(
+		int*  fileDescriptor,
 		const char keyphrase[],
 		void* valueArray,
 		int*  nItems,
 		const char  datatype[],
-		const char  iotype[] )
-{
+		const char  iotype[] ) {
 
 	//if(irank == 0) printf("entering readdatablock()\n");
+	unsigned long long timer_start, timer_end, data_size = -1;
+	startTimer(&timer_start);
 
-	unsigned long long timer_start;
-	unsigned long long timer_end;
-	unsigned long long data_size;
-	double time_span;
+	int i = *fileDescriptor;
 
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_start = rdtsc();
+	if ( PhastaIONextActiveIndex == 0 ) {
+		int filePtr = *fileDescriptor - 1;
+		FILE* fileObject;
+		char junk;
 
-	{
-		int i = *fileDescriptor;
+		if ( *fileDescriptor < 1 || *fileDescriptor > (int)fileArray.size() ) {
+			fprintf(stderr,"No file associated with Descriptor %d\n",*fileDescriptor);
+			fprintf(stderr,"openfile_ function has to be called before \n") ;
+			fprintf(stderr,"acessing the file\n ") ;
+			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+			return;
+		}
 
-		if ( PhastaIONextActiveIndex == 0 )
-		{
-			int filePtr = *fileDescriptor - 1;
-			FILE* fileObject;
-			char junk;
+		// error check..
+		// since we require that a consistant header always preceed the data block
+		// let us check to see that it is actually the case.
 
-			if ( *fileDescriptor < 1 || *fileDescriptor > (int)fileArray.size() ) {
-				fprintf(stderr,"No file associated with Descriptor %d\n",*fileDescriptor);
-				fprintf(stderr,"openfile_ function has to be called before \n") ;
-				fprintf(stderr,"acessing the file\n ") ;
-				fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+		if ( ! cscompare( LastHeaderKey[ filePtr ], keyphrase ) ) {
+			fprintf(stderr, "Header not consistant with data block\n");
+			fprintf(stderr, "Header: %s\n", LastHeaderKey[ filePtr ] );
+			fprintf(stderr, "DataBlock: %s\n ", keyphrase );
+			fprintf(stderr, "Please recheck read sequence \n");
+			if( Strict_Error ) {
+				fprintf(stderr, "fatal error: cannot continue, returning out of call\n");
 				return;
 			}
+		}
 
-			// error check..
-			// since we require that a consistant header always preceed the data block
-			// let us check to see that it is actually the case.
+		if ( LastHeaderNotFound ) return;
 
-			if ( ! cscompare( LastHeaderKey[ filePtr ], keyphrase ) ) {
-				fprintf(stderr, "Header not consistant with data block\n");
-				fprintf(stderr, "Header: %s\n", LastHeaderKey[ filePtr ] );
-				fprintf(stderr, "DataBlock: %s\n ", keyphrase );
-				fprintf(stderr, "Please recheck read sequence \n");
-				if( Strict_Error ) {
-					fprintf(stderr, "fatal error: cannot continue, returning out of call\n");
-					return;
-				}
+		fileObject = fileArray[ filePtr ];
+		Wrong_Endian = byte_order[ filePtr ];
+
+		size_t type_size = typeSize( datatype );
+		int nUnits = *nItems;
+		isBinary( iotype );
+
+		if ( binary_format ) {
+			fread( valueArray, type_size, nUnits, fileObject );
+			fread( &junk, sizeof(char), 1 , fileObject );
+			if ( Wrong_Endian ) SwapArrayByteOrder_( valueArray, type_size, nUnits );
+		} else {
+
+			char* ts1 = StringStripper( datatype );
+			if ( cscompare( "integer", ts1 ) ) {
+				for( int n=0; n < nUnits ; n++ )
+					fscanf(fileObject, "%d\n",(int*)((int*)valueArray+n) );
+			} else if ( cscompare( "double", ts1 ) ) {
+				for( int n=0; n < nUnits ; n++ )
+					fscanf(fileObject, "%lf\n",(double*)((double*)valueArray+n) );
 			}
+			free (ts1);
+		}
 
-			if ( LastHeaderNotFound ) return;
+		//return;
+	}
+	else {
+		// 	  printf("read data block\n");
+		MPI_Status read_data_status;
+		size_t type_size = typeSize( datatype );
+		int nUnits = *nItems;
+		isBinary( iotype );
 
-			fileObject = fileArray[ filePtr ];
-			Wrong_Endian = byte_order[ filePtr ];
+		// read datablock then
+		//MR CHANGE
+		//             if ( cscompare ( datatype, "double"))
+		char* ts2 = StringStripper( datatype );
+		if ( cscompare ( "double" , ts2))
+			//MR CHANGE END
+		{
 
-			size_t type_size = typeSize( datatype );
-			int nUnits = *nItems;
-			isBinary( iotype );
+			MPI_File_read_at_all_begin( PhastaIOActiveFiles[i]->file_handle,
+					PhastaIOActiveFiles[i]->my_offset + DB_HEADER_SIZE,
+					valueArray,
+					nUnits,
+					MPI_DOUBLE );
+			MPI_File_read_at_all_end( PhastaIOActiveFiles[i]->file_handle,
+					valueArray,
+					&read_data_status );
+			data_size=8*nUnits;
 
-			if ( binary_format ) {
-				fread( valueArray, type_size, nUnits, fileObject );
-				fread( &junk, sizeof(char), 1 , fileObject );
-				if ( Wrong_Endian ) SwapArrayByteOrder_( valueArray, type_size, nUnits );
-			} else {
-
-				char* ts1 = StringStripper( datatype );
-				if ( cscompare( "integer", ts1 ) ) {
-					for( int n=0; n < nUnits ; n++ )
-						fscanf(fileObject, "%d\n",(int*)((int*)valueArray+n) );
-				} else if ( cscompare( "double", ts1 ) ) {
-					for( int n=0; n < nUnits ; n++ )
-						fscanf(fileObject, "%lf\n",(double*)((double*)valueArray+n) );
-				}
-				free (ts1);
-			}
-
-			return;
+		}
+		//MR CHANGE
+		//             else if ( cscompare ( datatype, "integer"))
+		else if ( cscompare ( "integer" , ts2))
+			//MR CHANGE END
+		{
+			MPI_File_read_at_all_begin(PhastaIOActiveFiles[i]->file_handle,
+					PhastaIOActiveFiles[i]->my_offset + DB_HEADER_SIZE,
+					valueArray,
+					nUnits,
+					MPI_INT );
+			MPI_File_read_at_all_end( PhastaIOActiveFiles[i]->file_handle,
+					valueArray,
+					&read_data_status );
+			data_size=4*nUnits;
 		}
 		else
 		{
-			// 	  printf("read data block\n");
-			MPI_Status read_data_status;
-			size_t type_size = typeSize( datatype );
-			int nUnits = *nItems;
-			isBinary( iotype );
-
-			// read datablock then
-			//MR CHANGE
-			//             if ( cscompare ( datatype, "double"))
-			char* ts2 = StringStripper( datatype );
-			if ( cscompare ( "double" , ts2))
-				//MR CHANGE END
-			{
-
-				MPI_File_read_at_all_begin( PhastaIOActiveFiles[i]->file_handle,
-						PhastaIOActiveFiles[i]->my_offset + DB_HEADER_SIZE,
-						valueArray,
-						nUnits,
-						MPI_DOUBLE );
-				MPI_File_read_at_all_end( PhastaIOActiveFiles[i]->file_handle,
-						valueArray,
-						&read_data_status );
-				data_size=8*nUnits;
-
-			}
-			//MR CHANGE
-			//             else if ( cscompare ( datatype, "integer"))
-			else if ( cscompare ( "integer" , ts2))
-				//MR CHANGE END
-			{
-				MPI_File_read_at_all_begin(PhastaIOActiveFiles[i]->file_handle,
-						PhastaIOActiveFiles[i]->my_offset + DB_HEADER_SIZE,
-						valueArray,
-						nUnits,
-						MPI_INT );
-				MPI_File_read_at_all_end( PhastaIOActiveFiles[i]->file_handle,
-						valueArray,
-						&read_data_status );
-				data_size=4*nUnits;
-			}
-			else
-			{
-				*fileDescriptor = DATA_TYPE_ILLEGAL;
-				printf("readdatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
-				return;
-			}
+			*fileDescriptor = DATA_TYPE_ILLEGAL;
+			printf("readdatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
+			return;
+		}
 
 
-			// 	  printf("%d Read finishe\n",PhastaIOActiveFiles[i]->myrank);
+		// 	  printf("%d Read finishe\n",PhastaIOActiveFiles[i]->myrank);
 
-			// Swap data byte order if endianess is different ...
-			if ( PhastaIOActiveFiles[i]->Wrong_Endian )
-			{
-				SwapArrayByteOrder_( valueArray, type_size, nUnits );
-			}
+		// Swap data byte order if endianess is different ...
+		if ( PhastaIOActiveFiles[i]->Wrong_Endian )
+		{
+			SwapArrayByteOrder_( valueArray, type_size, nUnits );
 		}
 	}
 
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_end = rdtsc();
-	time_span=(double)((timer_end-timer_start)/clockRate);
-	//if (PhastaIOActiveFiles[*fileDescriptor]->myrank==0) {
-	if (irank==0) {
-		printf("Time, readdatablock %s  is :    %f s\n",
-				StringStripper(keyphrase),time_span);
-	}
-
-
-	unsigned long long isizemin,isizemax,isizetot;
-	double sizemin,sizemax,sizeavg,sizetot,rate;
-
-	MPI_Allreduce(&data_size,&isizemin,1,MPI_LONG_LONG_INT,MPI_MIN,MPI_COMM_WORLD);
-	MPI_Allreduce(&data_size,&isizemax,1,MPI_LONG_LONG_INT,MPI_MAX,MPI_COMM_WORLD);
-	MPI_Allreduce(&data_size,&isizetot,1,MPI_LONG_LONG_INT,MPI_SUM,MPI_COMM_WORLD);
-
-	sizemin=(double)(isizemin/1024.0/1024.0);
-	sizemax=(double)(isizemax/1024.0/1024.0);
-	sizetot=(double)(isizetot/1024.0/1024.0);
-	sizeavg=(double)(1.0*sizetot/PhastaIOActiveFiles[*fileDescriptor]->numprocs);
-	rate=(double)(1.0*sizetot/time_span);
-
-	if (PhastaIOActiveFiles[*fileDescriptor]->myrank==0)
-		printf("Time: block:   Min= %f MB; Max= %f MB; Avg= %f MB; Tot= %f MB; Rate= %f MB/s; \n",sizemin,sizemax,sizeavg,sizetot,rate);
+	endTimer(&timer_end);
+	char extra_msg[1024];
+	memset(extra_msg, '\0', 1024);
+	char* key = StringStripper(keyphrase);
+	sprintf(extra_msg, " field is %s ", key);
+	printPerf("readdatablock", timer_start, timer_end, data_size, extra_msg);
 
 }
 
-	void
-writeheader_(  const int* fileDescriptor,
+void writeheader_(  const int* fileDescriptor,
 		const char keyphrase[],
 		const void* valueArray,
 		const int* nItems,
 		const int* ndataItems,
 		const char datatype[],
-		const char iotype[]  )
-{
+		const char iotype[]) {
+
 	//if(irank == 0) printf("entering writeheader()\n");
 
-	unsigned long long timer_start;
-	unsigned long long timer_end;
-	double time_span;
-
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_start = rdtsc();
-
+	unsigned long long timer_start, timer_end;
+	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
 
@@ -1642,39 +1526,25 @@ writeheader_(  const int* fileDescriptor,
 		}
 	}
 
-	// Time monitoring
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_end = rdtsc();
-	time_span=(double)((timer_end-timer_start)/clockRate);
-	//if (PhastaIOActiveFiles[*fileDescriptor]->myrank==0) {
-	if (irank==0) {
-		printf("Time, writeheader %s  is :    %f s\n",
-				StringStripper(keyphrase),time_span);
-	}
+	endTimer(&timer_end);
+	printPerf("writeheader", timer_start, timer_end, -1, "");
 }
 
-	void
-writedatablock_( const int* fileDescriptor,
+void writedatablock_(
+		const int* fileDescriptor,
 		const char keyphrase[],
 		const void* valueArray,
 		const int* nItems,
 		const char datatype[],
-		const char iotype[] )
-{
+		const char iotype[] ) {
 	//if(irank == 0) printf("entering writedatablock()\n");
 
-	unsigned long long timer_start;
-	unsigned long long timer_end;
-	unsigned long long data_size;
-	double time_span;
-
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_start = rdtsc();
+	unsigned long long timer_start, timer_end, data_size = -1;
+	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
 
-	if ( PhastaIONextActiveIndex == 0 )
-	{
+	if ( PhastaIONextActiveIndex == 0 ) {
 		int filePtr = *fileDescriptor - 1;
 
 		if ( *fileDescriptor < 1 || *fileDescriptor > (int)fileArray.size() ) {
@@ -1684,8 +1554,6 @@ writedatablock_( const int* fileDescriptor,
 			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
 			return;
 		}
-
-		// error check..
 		// since we require that a consistant header always preceed the data block
 		// let us check to see that it is actually the case.
 
@@ -1743,8 +1611,7 @@ writedatablock_( const int* fileDescriptor,
 		}
 		return ;
 	}
-	else
-	{
+	else {  // syncIO case
 		MPI_Status write_data_status;
 		isBinary( iotype );
 		int nUnits = *nItems;
@@ -1783,41 +1650,36 @@ writedatablock_( const int* fileDescriptor,
 					&write_data_status );
 			data_size=4*nUnits;
 		}
-		else
-		{
-			//             *fileDescriptor = DATA_TYPE_ILLEGAL;
-			printf("writedatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
+		else {
+			printf("Erro: writedatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
 			return;
 		}
 	}
 
-	MPI_Barrier(MPI_COMM_WORLD);
-	timer_end = rdtsc();
-	time_span=(double)((timer_end-timer_start)/clockRate);
-	//if (PhastaIOActiveFiles[*fileDescriptor]->myrank==0) {
-	if (irank==0) {
-		printf("Time, writedatablock %s  is :    %f s\n",
-				StringStripper(keyphrase),time_span);
-	}
-
-	unsigned long long isizemin,isizemax,isizetot;
-	double sizemin,sizemax,sizeavg,sizetot,rate;
-
-	MPI_Allreduce(&data_size,&isizemin,1,MPI_LONG_LONG_INT,MPI_MIN,MPI_COMM_WORLD);
-	MPI_Allreduce(&data_size,&isizemax,1,MPI_LONG_LONG_INT,MPI_MAX,MPI_COMM_WORLD);
-	MPI_Allreduce(&data_size,&isizetot,1,MPI_LONG_LONG_INT,MPI_SUM,MPI_COMM_WORLD);
-
-	sizemin=(double)(isizemin/1024.0/1024.0);
-	sizemax=(double)(isizemax/1024.0/1024.0);
-	sizetot=(double)(isizetot/1024.0/1024.0);
-	sizeavg=(double)(1.0*sizetot/PhastaIOActiveFiles[*fileDescriptor]->numprocs);
-	rate=(double)(1.0*sizetot/time_span);
-
-	if (PhastaIOActiveFiles[*fileDescriptor]->myrank==0)
-		printf("Time: block:   Min= %f MB; Max= %f MB; Avg= %f MB; Tot= %f MB; Rate= %f MB/s; \n",sizemin,sizemax,sizeavg,sizetot,rate);
+	endTimer(&timer_end);
+	char extra_msg[1024];
+	memset(extra_msg, '\0', 1024);
+	char* key = StringStripper(keyphrase);
+	sprintf(extra_msg, " field is %s ", key);
+	printPerf("writedatablock", timer_start, timer_end, data_size, extra_msg);
 
 }
 
+void
+SwapArrayByteOrder_( void* array,
+		int   nbytes,
+		int   nItems ) {
+	/* This swaps the byte order for the array of nItems each
+		 of size nbytes , This will be called only locally  */
+	int i,j;
+	unsigned char* ucDst = (unsigned char*)array;
+
+	for(i=0; i < nItems; i++) {
+		for(j=0; j < (nbytes/2); j++)
+			std::swap( ucDst[j] , ucDst[(nbytes - 1) - j] );
+		ucDst += nbytes;
+	}
+}
 
 void
 writestring_( int* fileDescriptor,
