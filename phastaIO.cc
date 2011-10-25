@@ -450,6 +450,14 @@ void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 								sizeof(int));
 						if ( magic_number != ENDIAN_TEST_NUMBER )
 							SwapArrayByteOrder_(&mhsize, sizeof(int), 1);
+
+						if(mhsize > DefaultMHSize) {
+							//if actual headersize is larger than default, let's re-read
+							free(SerialFile->masterHeader);
+							SerialFile->masterHeader = (char *)malloc(mhsize);
+							fseek(fileHandle, 0, SEEK_SET); // reset the file stream position
+							fread(SerialFile->masterHeader,1,mhsize,fileHandle);
+						}
 					}
 					//TODO: check if this is a valid int??
 					MasterHeaderSize = mhsize;
