@@ -61,6 +61,23 @@ int mysize = -1;
 //unsigned long long pool_align = 8;
 //unsigned long long mem_address;
 
+// the following defines are for debug printf
+#define PHASTAIO_PREFIX "phastaIO debug: "
+#define PHASTAIO_DEBUG 0
+
+#if PHASTAIO_DEBUG
+#define phprintf( s, arg...) printf(PHASTAIO_PREFIX s "\n", ##arg)
+#define phprintf_0( s, arg...) do{ \
+	MPI_Comm_rank(MPI_COMM_WORLD, &irank); \
+	if(irank == 0){ \
+		printf(PHASTAIO_PREFIX "irank=0: " s "\n", ##arg); \
+	} \
+} while(0)
+#else
+#define phprintf( s, arg...)
+#define phprintf_0( s, arg...)
+#endif
+
 enum PhastaIO_Errors
 {
 	MAX_PHASTA_FILES_EXCEEDED = -1,
@@ -501,7 +518,7 @@ void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 	MPI_Bcast( nfields, 1, MPI_INT, 0, MPI_COMM_WORLD );
 	MPI_Bcast( nppf, 1, MPI_INT, 0, MPI_COMM_WORLD );
 	MPI_Bcast( &MasterHeaderSize, 1, MPI_INT, 0, MPI_COMM_WORLD );
-	//if(myrank == 0) printf("end of query(): myrank = %d, mh size= %d\n", myrank, MasterHeaderSize);
+	//phprintf_0("end of query(): myrank = %d, mh size= %d\n", irank, MasterHeaderSize);
 }
 
 int computeMHSize(int nfields, int nppf, int version) {
@@ -533,6 +550,8 @@ int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const c
 	// we init irank again in case query not called (e.g. syncIO write case)
 	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
 	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
+
+	phprintf("entering init func, myrank = %d", irank);
 
 	unsigned long long timer_start, timer_end;
 	startTimer(&timer_start);
@@ -679,6 +698,8 @@ int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const c
 	memset(extra_msg, '\0', 1024);
 	sprintf(extra_msg, " total # of files is %d, total # of fields is %d ", *nfiles, *nfields);
 	printPerf("initphmpiio", timer_start, timer_end, -1, extra_msg);
+
+	phprintf_0("quiting init");
 
 	return i;
 }
