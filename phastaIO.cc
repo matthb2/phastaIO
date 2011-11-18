@@ -1,28 +1,12 @@
-/*********************************************************************/
-/*              SyncIO: Phasta New IO Library Based on MPI           */
-/*                                                                   */
-/*                             --by Ning Liu                         */
-/*                                        July 13th, 2010            */
-/*********************************************************************/
-/*                                                                   */
-/*  Patch 1: flexible header                                         */
-/*    default is 4M, newer version add version NO in                 */
-/*    1st line of file, and master header size in 1st                */
-/*    line. Read master header size in query function                */
-/*    instead of using the default                                   */
-/*                             --by Ning Liu                         */
-/*                                     Oct 1st, 2011                 */
-/*                                                                   */
-/*********************************************************************/
-/*                                                                   */
-/*  Patch 2: memroy allocation alignment                             */
-/*    this solution is for Intrepid Blue Gene/P which                */
-/*    which is a 32 bit machine, we shouldn't have this              */
-/*    issue when moving to Blue Gene/Q                               */
-/*                             --by Ning Liu                         */
-/*                                     Oct 2nd, 2011                 */
-/*                                                                   */
-/*********************************************************************/
+/*
+ *
+ * This is the SyncIO library that uses MPI-IO collective functions to
+ * implement a flexible I/O checkpoint solution for a large number of
+ * processors.
+ *
+ * Contact: Michel.Rasquin@colorado.edu, fuj@cs.rpi.edu
+ *
+ */
 
 #include <map>
 #include <vector>
