@@ -4,9 +4,8 @@
  * implement a flexible I/O checkpoint solution for a large number of
  * processors.
  *
- * Previous developer: Ning Liu         (liun2@cs.rpi.edu)
- * Current developers: Michel Rasquin   (Michel.Rasquin@colorado.edu),
- *                     Jing Fu          (fuj@cs.rpi.edu)
+ * Previous developer: Ning Liu (liun2@cs.rpi.edu)
+ * Current developers: Michel.Rasquin@colorado.edu, fuj@cs.rpi.edu
  *
  */
 
@@ -37,6 +36,7 @@
 #define DefaultMHSize (4*ONE_MEGABYTE)
 //#define DefaultMHSize (8350) //For test
 #define LATEST_WRITE_VERSION 1
+#define inv1024sq 953.674316406e-9 // = 1/1024/1024
 int MasterHeaderSize = -1;
 
 bool PRINT_PERF = true; // default to not print any perf results
@@ -333,8 +333,8 @@ void printPerf(
 	if( !PRINT_PERF ) return;
 
 	unsigned long long timer_start = start;
-	unsigned long long timer_end	 = end;
-	unsigned long long data_size	 = datasize;
+	unsigned long long timer_end = end;
+	unsigned long long data_size = datasize;
 
 	double time = (double)((timer_end-timer_start)/clockRate);
 
@@ -358,9 +358,12 @@ void printPerf(
 		MPI_Allreduce(&data_size,&isizemax,1,MPI_LONG_LONG_INT,MPI_MAX,MPI_COMM_WORLD);
 		MPI_Allreduce(&data_size,&isizetot,1,MPI_LONG_LONG_INT,MPI_SUM,MPI_COMM_WORLD);
 
-		sizemin=(double)(isizemin/1024.0/1024.0);
-		sizemax=(double)(isizemax/1024.0/1024.0);
-		sizetot=(double)(isizetot/1024.0/1024.0);
+//		sizemin=(double)(isizemin/1024.0/1024.0);
+//		sizemax=(double)(isizemax/1024.0/1024.0);
+//		sizetot=(double)(isizetot/1024.0/1024.0);
+		sizemin=(double)(isizemin*inv1024sq);
+		sizemax=(double)(isizemax*inv1024sq);
+		sizetot=(double)(isizetot*inv1024sq);
 		sizeavg=(double)(1.0*sizetot/mysize);
 		rate=(double)(1.0*sizetot/tmax);
 
