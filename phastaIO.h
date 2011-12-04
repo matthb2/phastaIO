@@ -2,8 +2,6 @@
 /*  functions are 'C' callable.( All arguments have been kept as pointers to*/
 /*  facilitate calling from Fortran )*/
 /*  Anil Kumar Karanam  Spring 2003*/
-/* Contact Michel.Rasquin@colorado.edu, fuj@cs.rpi.edu Fall 2011 */
-
 #ifndef _PHASTAIO_H_
 #define _PHASTAIO_H_
 
