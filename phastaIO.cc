@@ -4,8 +4,9 @@
  * implement a flexible I/O checkpoint solution for a large number of
  * processors.
  *
- * Previous developer: Ning Liu (liun2@cs.rpi.edu)
- * Current developers: Michel.Rasquin@colorado.edu, fuj@cs.rpi.edu
+ * Previous developer: Ning Liu         (liun2@cs.rpi.edu)
+ * Current developers: Michel Rasquin   (Michel.Rasquin@colorado.edu),
+ *                     Jing Fu          (fuj@cs.rpi.edu)
  *
  */
 
