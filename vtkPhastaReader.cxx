@@ -410,8 +410,10 @@ void vtkPhastaReader::queryphmpiio_(const char filename[],int *nfields, int *npp
 	char* fname = StringStripper( filename );
 
 	fileHandle = fopen (fname,"rb");
-	if (fileHandle == NULL )
+	if (fileHandle == NULL ) {
 		printf("\n File %s doesn't exist! Please check!\n",fname);
+    exit(1);
+  }
 	else
 	{
 		SerialFile =(serial_file *)calloc( 1,  sizeof( serial_file) );
@@ -510,7 +512,7 @@ void vtkPhastaReader::queryphmpiio_(const char filename[],int *nfields, int *npp
 
 void vtkPhastaReader::finalizephmpiio_( int *fileDescriptor )
 {
-
+  //printf("total open time is %lf\n", opentime_total);
 	// free master header, offset table [][], and serial file struc
 	free( SerialFile->masterHeader);
 	int j;
@@ -584,9 +586,12 @@ void vtkPhastaReader::openfile( const char filename[],
 	if ( char* p = strpbrk(buffer, "@") )
 		*p = '\0';
 
+  startTimer(&start);
 	if ( cscompare( "read", imode ) ) file = fopen(fname, "rb" );
 	else if( cscompare( "write", imode ) ) file = fopen(fname, "wb" );
 	else if( cscompare( "append", imode ) ) file = fopen(fname, "ab" );
+  endTimer(&end);
+  computeTime(&start, &end);
 
 
 	if ( !file ){
@@ -1092,6 +1097,7 @@ return;
 
 vtkPhastaReader::vtkPhastaReader()
 {
+  //this->DebugOn(); // TODO: comment out this line to turn off debug
 	this->GeometryFileName = NULL;
 	this->FieldFileName = NULL;
 	this->SetNumberOfInputPorts(0);
@@ -1156,7 +1162,8 @@ int vtkPhastaReader::RequestData(vtkInformation*,
 		vtkInformationVector**,
 		vtkInformationVector* outputVector)
 {
-	//printf("In P requestData\n");
+	vtkDebugMacro("In P RequestData");
+
 	int firstVertexNo = 0;
 	int fvn = 0;
 	int noOfNodes, noOfCells, noOfDatas;
@@ -1263,6 +1270,9 @@ int vtkPhastaReader::RequestData(vtkInformation*,
 	//printf("end of RequestData():");
 	//printf("counter = %ld\n", counter++);
 
+  vtkDebugMacro("# of pieces is "<<numPieces << ", partID_counter = "<< partID_counter);
+  vtkDebugMacro("-------> total open time is "<< opentime_total);
+
 	return 1;
 }
 
@@ -1276,7 +1286,7 @@ void vtkPhastaReader::ReadGeomFile(char* geomFileName,
 		int &num_nodes,
 		int &num_cells)
 {
-	//printf("Entering readGeom\n");
+	vtkDebugMacro("in readGeom");
 
 	/* variables for vtk */
 	vtkUnstructuredGrid *output = this->GetOutput();
@@ -1545,7 +1555,7 @@ void vtkPhastaReader::ReadGeomFile(char* geomFileName,
 	delete [] pos;
 	delete [] connectivity;
 
-}
+} // end of ReadGeomFile
 
 void vtkPhastaReader::ReadFieldFile(char* fieldFileName,
 		int,
@@ -1553,7 +1563,7 @@ void vtkPhastaReader::ReadFieldFile(char* fieldFileName,
 		int &noOfNodes)
 {
 
-	//printf("In P ReadFieldFile\n");
+	vtkDebugMacro("In P ReadFieldFile (vtkDataSetAttr), readheader etc calls need to be updated..");
 
 	int i, j;
 	int item;
@@ -1650,7 +1660,7 @@ void vtkPhastaReader::ReadFieldFile(char* fieldFileName,
 	finalizephmpiio_(&fieldfile);
 	delete [] data;
 
-} //closes ReadFieldFile
+} //closes ReadFieldFile (vtkDataSetAttr)
 
 
 void vtkPhastaReader::ReadFieldFile(char* fieldFileName,
@@ -1658,6 +1668,8 @@ void vtkPhastaReader::ReadFieldFile(char* fieldFileName,
 		vtkUnstructuredGrid *output,
 		int &noOfDatas)
 {
+
+  vtkDebugMacro("In P ReadFieldFile (vtkUnstructuredGrid)");
 
 	int i, j, numOfVars;
 	int item;
@@ -2000,9 +2012,8 @@ void vtkPhastaReader::ReadFieldFile(char* fieldFileName,
 	// close up
 	closefile(&fieldfile,"read");
 	finalizephmpiio_(&fieldfile);
-//need a finalized here
 
-}//closes ReadFieldFile
+}//closes ReadFieldFile (vtkUnstructuredGrid)
 
 void vtkPhastaReader::PrintSelf(ostream& os, vtkIndent indent)
 {
