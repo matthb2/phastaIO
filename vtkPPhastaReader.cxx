@@ -290,8 +290,8 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
       sprintf(field_name,
               fieldPattern,
               this->Internal->TimeStepInfoMap[this->ActualTimeStep].FieldIndex,
-  //            fileID); // why ?
-              loadingPiece+1);
+              fileID); // why ?
+  //            loadingPiece+1);
       }
     else if (fieldHasPiece)
       {

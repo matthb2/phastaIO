@@ -1097,7 +1097,7 @@ return;
 
 vtkPhastaReader::vtkPhastaReader()
 {
-  this->DebugOn(); // TODO: comment out this line to turn off debug
+  //this->DebugOn(); // TODO: comment out this line to turn off debug
 	this->GeometryFileName = NULL;
 	this->FieldFileName = NULL;
 	this->SetNumberOfInputPorts(0);
@@ -1198,7 +1198,9 @@ int vtkPhastaReader::RequestData(vtkInformation*,
 	int fileID;
 	fileID = int((partID_counter-1)/numPiecesPerFile)+1;
 
-	sprintf(this->FieldFileName,"%s%s.%d.%d",FILE_PATH,"/restart-dat",timeStep,fileID);
+  vtkDebugMacro(<< "FILE_PATH: " << FILE_PATH);
+  // FILE_PATH seems to be the path of .php file ?
+	//sprintf(this->FieldFileName,"%s%s.%d.%d",FILE_PATH,"/restart-dat",timeStep,fileID);
 	///////////////////////////////////////////////////////////
 
 	//printf("* partID is %d num piece is %d and file ID is %d, FieldFileName is %s\n", partID_counter,numPieces,fileID, this->FieldFileName);
