@@ -1,1 +1,4 @@
 This is intended to control versions of phastaIO between Michel and Jing..
+
+Note:
+Remember to turn vtkPhastaReader debug off in production..

@@ -1097,7 +1097,7 @@ return;
 
 vtkPhastaReader::vtkPhastaReader()
 {
-  //this->DebugOn(); // TODO: comment out this line to turn off debug
+  this->DebugOn(); // TODO: comment out this line to turn off debug
 	this->GeometryFileName = NULL;
 	this->FieldFileName = NULL;
 	this->SetNumberOfInputPorts(0);
