@@ -52,7 +52,7 @@ vtkStandardNewMacro(vtkPhastaReader);
 #include "rdtsc.h"
 #define clockRate 2670000000.0
 unsigned long long start, end;
-double opentime_total = 0.0;
+//double opentime_total = 0.0;
 
 void startTimer(unsigned long long* start) {
 	*start =  rdtsc();
@@ -1199,11 +1199,20 @@ int vtkPhastaReader::RequestData(vtkInformation*,
 	fileID = int((partID_counter-1)/numPiecesPerFile)+1;
 
   vtkDebugMacro(<< "FILE_PATH: " << FILE_PATH);
-  // FILE_PATH seems to be the path of .php file ?
-	//sprintf(this->FieldFileName,"%s%s.%d.%d",FILE_PATH,"/restart-dat",timeStep,fileID);
-	///////////////////////////////////////////////////////////
+  // FILE_PATH is set to be the path of .pht file ?
+	//sprintf(this->FieldFileName,"%s%s.%d.%d",FILE_PATH,"/restart-dat",timeStep,fileID); // this is Ning's version
 
-	//printf("* partID is %d num piece is %d and file ID is %d, FieldFileName is %s\n", partID_counter,numPieces,fileID, this->FieldFileName);
+  // the file id of fieldfilename need to be changed to file id now
+  char* str = this->FieldFileName;
+  for (int i = strlen(this->FieldFileName); i >= 0; i--) {
+    if(str[i] != '.')
+      str[i] = 0;
+    else
+      break;
+  }
+  sprintf(str, "%s%d", str, FILE_ID);
+  vtkDebugMacro(<<"tweaked FieldFileName="<<this->FieldFileName);
+	///////////////////////////////////////////////////////////
 
 	vtkPoints *points;
 
@@ -1272,7 +1281,7 @@ int vtkPhastaReader::RequestData(vtkInformation*,
 	//printf("end of RequestData():");
 	//printf("counter = %ld\n", counter++);
 
-  vtkDebugMacro("# of pieces is "<<numPieces << ", partID_counter = "<< partID_counter);
+  vtkDebugMacro("end of P RequestData() # of pieces is "<<numPieces << ", partID_counter = "<< partID_counter);
   vtkDebugMacro("-------> total open time is "<< opentime_total);
 
 	return 1;
@@ -1288,7 +1297,7 @@ void vtkPhastaReader::ReadGeomFile(char* geomFileName,
 		int &num_nodes,
 		int &num_cells)
 {
-	vtkDebugMacro("in readGeom");
+	vtkDebugMacro("in P ReadGeomFile(): partID="<<partID_counter);
 
 	/* variables for vtk */
 	vtkUnstructuredGrid *output = this->GetOutput();
@@ -1671,7 +1680,7 @@ void vtkPhastaReader::ReadFieldFile(char* fieldFileName,
 		int &noOfDatas)
 {
 
-  vtkDebugMacro("In P ReadFieldFile (vtkUnstructuredGrid)");
+  vtkDebugMacro("In P ReadFieldFile (vtkUnstructuredGrid): fieldFileName="<<fieldFileName << ", partID_counter=" << partID_counter);
 
 	int i, j, numOfVars;
 	int item;

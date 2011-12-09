@@ -39,6 +39,9 @@ int NUM_FILES;
 int TIME_STEP;
 char * FILE_PATH;
 int PART_ID;
+int FILE_ID;
+
+double opentime_total = 0.0;
 
 /*
  * Modified part is dealing with new phasta data format
@@ -75,6 +78,7 @@ vtkStandardNewMacro(vtkPPhastaReader);
 //----------------------------------------------------------------------------
 vtkPPhastaReader::vtkPPhastaReader()
 {
+  //this->DebugOn(); // comment out this line when in production
   this->FileName = 0;
 
   this->TimeStepIndex = 0;
@@ -111,7 +115,7 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
                                   vtkInformationVector**,
                                   vtkInformationVector* outputVector)
 {
-  //printf("Entering PP requestdata\n");
+  vtkDebugMacro("Entering PP RequestData()\n");
   // get the data object
   vtkInformation *outInfo =
     outputVector->GetInformationObject(0);
@@ -155,6 +159,9 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
   int numProcPieces =
     outInfo->Get(vtkStreamingDemandDrivenPipeline::UPDATE_NUMBER_OF_PIECES());
 
+  // this is actually # of proc
+  vtkDebugMacro(<<"numProcPieces (i.e. # of proc) = "<< numProcPieces);
+
   if (!this->Parser)
     {
     vtkErrorMacro("No parser was created. Cannot read file");
@@ -175,12 +182,10 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
     numFiles = 1;
     }
 
-
   NUM_PIECES=numPieces;
   NUM_FILES=numFiles;
 
-  //printf("NEW PHT Parameter: number_of_files = %d \n", numFiles );
-  //////////////////////////////////////////////////////////////////////////////
+  vtkDebugMacro(<<"NEW PHT Parameter: number_of_files = "<< numFiles );
 
   vtkMultiBlockDataSet *output = vtkMultiBlockDataSet::SafeDownCast(
     outInfo->Get(vtkDataObject::DATA_OBJECT()));
@@ -194,11 +199,9 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
   const char* geometryPattern = 0;
   int geomHasPiece = 0;
   int geomHasTime = 0;
-  //int geomHasPiece, geomHasTime;
   const char* fieldPattern = 0;
   int fieldHasPiece = 0;
   int fieldHasTime = 0;
-  //int fieldHasPiece, fieldHasTime;
 
   unsigned int numElements = rootElement->GetNumberOfNestedElements();
   for (unsigned int i=0; i<numElements; i++)
@@ -249,30 +252,29 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
 
   //////////////////////
   int numPiecesPerFile = numPieces/numFiles;
-  int fileID;
   //////////////////////
 
-  TIME_STEP=this->Internal->TimeStepInfoMap[this->ActualTimeStep].FieldIndex;
 
   // now loop over all of the files that I should load
 
   for(int loadingPiece=piece;loadingPiece<numPieces;loadingPiece+=numProcPieces)
     {
-      fileID = int(loadingPiece/numPiecesPerFile)+1;
+      TIME_STEP=this->Internal->TimeStepInfoMap[this->ActualTimeStep].FieldIndex;
+      FILE_ID = int(loadingPiece/numPiecesPerFile)+1; // this will be passed to PhastaReader by extern...
       PART_ID = loadingPiece+1;
 
-      //printf("PP In loop, piece=%d, loading piece+1 is %d and numPieces is %d and fileID is %d and rank is %d\n",
+      vtkDebugMacro(<<"PP In loop, piece="<< piece <<", loadingPiece+1="<< loadingPiece +1 << ", numPieces="<<numPieces<<", FILE_ID=" << FILE_ID<<", numProcPieces=" << numProcPieces);
 
     if (geomHasTime && geomHasPiece)
       {
       sprintf(geom_name,
               geometryPattern,
               this->Internal->TimeStepInfoMap[this->ActualTimeStep].GeomIndex,
-              fileID);
+              FILE_ID);
       }
     else if (geomHasPiece)
       {
-        sprintf(geom_name, geometryPattern, fileID);
+        sprintf(geom_name, geometryPattern, FILE_ID);
       }
     else if (geomHasTime)
       {
@@ -290,14 +292,15 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
       sprintf(field_name,
               fieldPattern,
               this->Internal->TimeStepInfoMap[this->ActualTimeStep].FieldIndex,
-              fileID); // why ?
-  //            loadingPiece+1);
+  //          FILE_ID); // don't use file id, otherwise dup geom and field file
+  //          id will make PhastaReader not update -- jingfu
+              loadingPiece+1);
       }
     else if (fieldHasPiece)
       {
       sprintf(field_name, fieldPattern,
         loadingPiece+1);
-  //fileID);
+  //FILE_ID);
       }
     else if (fieldHasTime)
       {
@@ -323,35 +326,31 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
     geomFName << geom_name << ends;
     this->Reader->SetGeometryFileName(geomFName.str().c_str());
 
-    //printf("requestData(): 1, ");
-    //std::cout<<"GeomFileName is " << geom_name << std::endl;
-
     vtksys_ios::ostringstream fieldFName;
+    // try to strip out the path of file, if it's a full path file name
     vtkstd::string fpath = vtksys::SystemTools::GetFilenamePath(field_name);
 
     ///////////////////////////////////////////
     FILE_PATH = new char[fpath.size()+1];
     strcpy(FILE_PATH,fpath.c_str());
-    //std::cout << "FILE_PATH= "<< FILE_PATH<<std::endl;
     ///////////////////////////////////////////
 
     if (fpath.empty() || !vtksys::SystemTools::FileIsFullPath(fpath.c_str()))
       {
-      vtkstd::string path = vtksys::SystemTools::GetFilenamePath(this->FileName);
+      vtkstd::string path = vtksys::SystemTools::GetFilenamePath(this->FileName); // FileName is the .pht file
       if (!path.empty())
         {
-    /////////////////////////////////////////
-    delete [] FILE_PATH;
-    FILE_PATH = new char[path.size()+1];
-    strcpy(FILE_PATH,path.c_str());
-    /////////////////////////////////////////
-    fieldFName << path.c_str() << "/";
-    //std::cout << "something might be wrong here, string path=" << path << ", fieldFName=" << fieldFName<< std::endl;
+          /////////////////////////////////////////
+          delete [] FILE_PATH;
+          FILE_PATH = new char[path.size()+1];
+          strcpy(FILE_PATH,path.c_str());
+          /////////////////////////////////////////
+          fieldFName << path.c_str() << "/";
+          //std::cout << "something might be wrong here, string path=" << path << ", fieldFName=" << fieldFName<< std::endl;
         }
       }
     fieldFName << field_name << ends;
     this->Reader->SetFieldFileName(fieldFName.str().c_str());
-  //std::cout << "requestData() mark2: now fieldFName is " << fieldFName<< std::endl;
     vtkPPhastaReaderInternal::CachedGridsMapType::iterator CachedCopy =
       this->Internal->CachedGrids.find(loadingPiece);
 
@@ -360,13 +359,16 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
     /*
     if(CachedCopy != this->Internal->CachedGrids.end())
       {
-      //this->Reader->SetCachedGrid(CachedCopy->second);
+      this->Reader->SetCachedGrid(CachedCopy->second);
       printf("should use cached copy but can't compile\n");
       }
       */
 
+    // In order to register etc, Reader need a new executative in every
+    // update call, otherwise it doesn't do anything
     this->Reader->Update();
     // the following "if" was commented out in previous new version (tweaked by Ning)
+
     /*
     if(CachedCopy == this->Internal->CachedGrids.end())
       {
@@ -379,13 +381,12 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
       this->Internal->CachedGrids[loadingPiece] = cached;
       }
       */
+
     vtkSmartPointer<vtkUnstructuredGrid> copy =
       vtkSmartPointer<vtkUnstructuredGrid>::New();
     copy->ShallowCopy(this->Reader->GetOutput());
-    //std::cout << "Curious: loadingPiece = " << loadingPiece <<", GetNumberOfPieces() = " << MultiPieceDataSet->GetNumberOfPieces() << std::endl;
     //MultiPieceDataSet->SetPiece(MultiPieceDataSet->GetNumberOfPieces(),copy); // Ning's version
     MultiPieceDataSet->SetPiece(loadingPiece,copy);
-    //printf("PP hello 6\n");
     }
 
   delete [] FILE_PATH;
@@ -397,6 +398,10 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
     output->GetInformation()->Set(vtkDataObject::DATA_TIME_STEPS(),
                                   steps+this->ActualTimeStep, 1);
     }
+
+  vtkDebugMacro("End of PP RequestData()\n, total open time is " << opentime_total);
+  // if it's not too many printf, print it out
+  if( numProcPieces < 16) printf("total open time for sync-io is %lf (nf=%d, np=%d)\n", opentime_total, numFiles, numProcPieces);
 
   return 1;
 }
