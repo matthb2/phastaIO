@@ -53,6 +53,7 @@ vtkStandardNewMacro(vtkPhastaReader);
 #define clockRate 2670000000.0
 unsigned long long start, end;
 //double opentime_total = 0.0;
+int LAST_FILE_ID;
 
 void startTimer(unsigned long long* start) {
 	*start =  rdtsc();
