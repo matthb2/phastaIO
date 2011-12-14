@@ -310,11 +310,17 @@ namespace{
 
 // begin of publicly visible functions
 
+/**
+ * This function takes a long long pointer and assign (start) rdtsc value to it
+ */
 void startTimer(unsigned long long* start) {
 	MPI_Barrier(MPI_COMM_WORLD);
 	*start =  rdtsc();
 }
 
+/**
+ * This function takes a long long pointer and assign (end) rdtsc value to it
+ */
 void endTimer(unsigned long long* end) {
 	*end = rdtsc();
 	MPI_Barrier(MPI_COMM_WORLD);
@@ -379,6 +385,17 @@ void printPerf(
 		}
 	}
 }
+
+/**
+ * This function is normally called at the beginning of a read operation, before
+ * init function.
+ * This function (uses rank 0) reads out nfields, nppf, master header size,
+ * endianess and allocates for masterHeader string.
+ * These values are essential for following read operations. Rank 0 will bcast
+ * these values to other ranks in the commm world
+ *
+ * If the file set is of old POSIX format, it would throw error and exit
+ */
 void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 {
 	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
@@ -392,8 +409,7 @@ void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 		if (fileHandle == NULL ) {
 			printf("\nError: File %s doesn't exist! Please check!\n",fname);
 		}
-		else
-		{
+		else {
 			SerialFile =(serial_file *)calloc( 1,  sizeof( serial_file) );
 			//SerialFile = (serial_file *)malloc( sizeof( serial_file ) + pool_align );
 			//mem_address = (long long )SerialFile;
@@ -420,19 +436,17 @@ void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 
 			memcpy( read_out_tag,
 					SerialFile->masterHeader,
-					MAX_FIELDS_NAME_LENGTH-1 ); //TODO: why -1
+					MAX_FIELDS_NAME_LENGTH-1 );
 
-			if ( cscompare ("MPI_IO_Tag",read_out_tag) )
-			{
+			if ( cscompare ("MPI_IO_Tag",read_out_tag) ) {
 				// Test endianess ...
 				memcpy (&magic_number,
 						SerialFile->masterHeader + sizeof("MPI_IO_Tag : ")-1, //-1 sizeof returns the size of the string+1 for "\0"
 						sizeof(int) );                                        // masterheader should look like "MPI_IO_Tag : 12180 " with 12180 in binary format
 
-				if ( magic_number != ENDIAN_TEST_NUMBER )
-				{
+				if ( magic_number != ENDIAN_TEST_NUMBER ) {
 					printf("Endian is different!\n");
-					//TODO: shouldn't we swap instead???
+					// Will do swap later
 				}
 
 				// test version, old version, default masterheader size is 4M
@@ -441,11 +455,10 @@ void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 						SerialFile->masterHeader + MAX_FIELDS_NAME_LENGTH/2,
 						MAX_FIELDS_NAME_LENGTH/4 - 1); //TODO: why -1?
 
-				if( cscompare ("version",version) )
-				{
+				if( cscompare ("version",version) ) {
 					// if there is "version" tag in the file, then it is newer format
 					// read master header size from here, otherwise use default
-					// TODO: if version is "1", we know mhsize is at 3/4 place...
+					// Note: if version is "1", we know mhsize is at 3/4 place...
 
 					token = strtok(version, ":");
 					token = strtok(NULL, " ,;<>" );
@@ -495,10 +508,10 @@ void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 				token = strtok( NULL," ,;<>" );
 				*nppf = atoi( token );
 				SerialFile->nppf=*nppf; //TODO: sanity check of int
-			}
-			else
-			{
-				printf("\nError: The file you opened is not new format, please check!\n");
+			} // end of if("MPI_IO_TAG")
+			else {
+				printf("\nError: The file you opened is not of syncIO new format, please check again!\n");
+        exit(1);
 			}
 			fclose(fileHandle);
 		} //end of else
@@ -511,6 +524,10 @@ void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 	//phprintf_0("end of query(): myrank = %d, mh size= %d\n", irank, MasterHeaderSize);
 }
 
+/**
+ * This function computes the right master header size (round to size of 2^n).
+ * This is only needed for file format version 1 in "write" mode.
+ */
 int computeMHSize(int nfields, int nppf, int version) {
 	int mhsize;
 	if(version == 1) {
@@ -529,12 +546,22 @@ int computeMHSize(int nfields, int nppf, int version) {
 	return mhsize;
 }
 
+/**
+ * Computes correct color of a rank according to number of files. mrasquin likes it.
+ */
 int computeColor( int myrank, int numprocs, int nfiles) {
 	int color =
 		(int)(myrank / (numprocs / nfiles));
 	return color;
 }
 
+/**
+ * Initialize the file struct members and allocate space for file struct
+ * buffers.
+ *
+ * Note: this function is only called when we are using new format. Old POSIX
+ * format should skip this routine and call openfile() directly instead.
+ */
 int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const char mode[])
 {
 	// we init irank again in case query not called (e.g. syncIO write case)
@@ -559,6 +586,7 @@ int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const c
 	}
 	else {
 		if (irank == 0) printf("Error: can't recognize the mode %s", imode);
+    exit(1);
 	}
 
 	int i, j;
@@ -694,6 +722,9 @@ int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const c
 	return i;
 }
 
+/**
+ * Destruct the file struct and free buffers allocated in init function.
+ */
 void finalizephmpiio_( int *fileDescriptor )
 {
 	unsigned long long timer_start, timer_end;
@@ -725,11 +756,19 @@ void finalizephmpiio_( int *fileDescriptor )
 	PhastaIONextActiveIndex--;
 }
 
-void openfile_(
-		const char filename[],
-		const char mode[],
-		int*  fileDescriptor ) {
-
+/** open file for both POSIX and MPI-IO syncIO format.
+ *
+ * If it's old POSIX format, simply call posix fopen().
+ *
+ * If it's MPI-IO foramt:
+ * in "read" mode, it builds the header table that points to the offset of
+ * fields for parts;
+ * in "write" mode, it opens the file with MPI-IO open routine.
+ */
+void openfile_(const char filename[],
+               const char mode[],
+               int*  fileDescriptor )
+{
 	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
 	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
 	//if(irank == 0) printf("entering openfile..\n");
@@ -899,10 +938,18 @@ void openfile_(
 	printPerf("openfile_", timer_start, timer_end, -1, "");
 }
 
-void closefile_(
-		int* fileDescriptor,
-		const char mode[] ) {
-
+/** close file for both POSIX and MPI-IO syncIO format.
+ *
+ * If it's old POSIX format, simply call posix fclose().
+ *
+ * If it's MPI-IO foramt:
+ * in "read" mode, it simply close file with MPI-IO close routine.
+ * in "write" mode, rank 0 in each group will re-assemble the master header and
+ * offset table and write to the beginning of file, then close the file.
+ */
+void closefile_( int* fileDescriptor,
+                 const char mode[] )
+{
 	unsigned long long timer_start, timer_end;
 	startTimer(&timer_start);
 
@@ -930,7 +977,7 @@ void closefile_(
 			//		MasterHeaderSize = 4*ONE_MEGABYTE + PhastaIOActiveFiles[i]->nPPF * PhastaIOActiveFiles[i]->nFields * 8 - 2*ONE_MEGABYTE;
 
 			MasterHeaderSize = computeMHSize( PhastaIOActiveFiles[i]->nFields, PhastaIOActiveFiles[i]->nPPF, LATEST_WRITE_VERSION);
-			if(irank == 0) printf("in closefile(): mhsize = %d, myrank = %d\n", MasterHeaderSize, irank);
+			//if(irank == 0) printf("in closefile(): mhsize = %d, myrank = %d\n", MasterHeaderSize, irank);
 
 			MPI_Status write_header_status;
 			char mpi_tag[MAX_FIELDS_NAME_LENGTH];
@@ -1050,14 +1097,13 @@ void closefile_(
 	printPerf("closefile_", timer_start, timer_end, -1, "");
 }
 
-void readheader_(
-		int* fileDescriptor,
-		const  char keyphrase[],
-		void* valueArray,
-		int*  nItems,
-		const char  datatype[],
-		const char  iotype[] ) {
-
+void readheader_( int* fileDescriptor,
+                  const  char keyphrase[],
+                  void* valueArray,
+                  int*  nItems,
+                  const char  datatype[],
+                  const char  iotype[] )
+{
 	unsigned long long timer_start, timer_end;
 	startTimer(&timer_start);
 	//if(irank == 0) printf("entering readheader()\n");
@@ -1222,13 +1268,13 @@ void readheader_(
 
 }
 
-void readdatablock_(
-		int*  fileDescriptor,
-		const char keyphrase[],
-		void* valueArray,
-		int*  nItems,
-		const char  datatype[],
-		const char  iotype[] ) {
+void readdatablock_( int*  fileDescriptor,
+                     const char keyphrase[],
+                     void* valueArray,
+                     int*  nItems,
+                     const char  datatype[],
+                     const char  iotype[] )
+{
 
 	//if(irank == 0) printf("entering readdatablock()\n");
 	unsigned long long timer_start, timer_end, data_size = -1;
@@ -1360,12 +1406,13 @@ void readdatablock_(
 }
 
 void writeheader_(  const int* fileDescriptor,
-		const char keyphrase[],
-		const void* valueArray,
-		const int* nItems,
-		const int* ndataItems,
-		const char datatype[],
-		const char iotype[]) {
+                    const char keyphrase[],
+                    const void* valueArray,
+                    const int* nItems,
+                    const int* ndataItems,
+                    const char datatype[],
+                    const char iotype[])
+{
 
 	//if(irank == 0) printf("entering writeheader()\n");
 
@@ -1549,13 +1596,13 @@ void writeheader_(  const int* fileDescriptor,
 	printPerf("writeheader", timer_start, timer_end, -1, "");
 }
 
-void writedatablock_(
-		const int* fileDescriptor,
-		const char keyphrase[],
-		const void* valueArray,
-		const int* nItems,
-		const char datatype[],
-		const char iotype[] ) {
+void writedatablock_( const int* fileDescriptor,
+                      const char keyphrase[],
+                      const void* valueArray,
+                      const int* nItems,
+                      const char datatype[],
+                      const char iotype[] )
+{
 	//if(irank == 0) printf("entering writedatablock()\n");
 
 	unsigned long long timer_start, timer_end, data_size = -1;
@@ -1686,8 +1733,9 @@ void writedatablock_(
 
 void
 SwapArrayByteOrder_( void* array,
-		int   nbytes,
-		int   nItems ) {
+                     int   nbytes,
+                     int   nItems )
+{
 	/* This swaps the byte order for the array of nItems each
 		 of size nbytes , This will be called only locally  */
 	int i,j;
@@ -1702,7 +1750,8 @@ SwapArrayByteOrder_( void* array,
 
 void
 writestring_( int* fileDescriptor,
-		const char inString[] ) {
+              const char inString[] )
+{
 
 	int filePtr = *fileDescriptor - 1;
 	FILE* fileObject = fileArray[filePtr] ;
@@ -1712,7 +1761,8 @@ writestring_( int* fileDescriptor,
 
 void
 Gather_Headers( int* fileDescriptor,
-		vector< string >& headers ) {
+                vector< string >& headers )
+{
 
 	FILE* fileObject;
 	char Line[1024];
@@ -1737,7 +1787,8 @@ void
 togglestrictmode_( void ) { Strict_Error = !Strict_Error; }
 
 int
-isLittleEndian_( void ) {
+isLittleEndian_( void )
+{
 	// this function returns a 1 if the current running architecture is
 	// LittleEndian Byte Ordered, else it returns a zero
 
