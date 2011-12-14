@@ -938,7 +938,8 @@ void vtkPhastaReader::readdatablock( int*  fileDescriptor,
 		fread( valueArray, type_size, nUnits, fileObject );
 		//fread( &junk, sizeof(char), 1 , fileObject );
 		//if ( Wrong_Endian ) SwapArrayByteOrder_( valueArray, type_size, nUnits );
-		if ( diff_endian ) SwapArrayByteOrder_( valueArray, type_size, nUnits ); // fj
+		if ( diff_endian )
+      SwapArrayByteOrder_( valueArray, type_size, nUnits ); // fj
 	} else {
 
 		char* ts1 = StringStripper( datatype );
@@ -952,145 +953,7 @@ void vtkPhastaReader::readdatablock( int*  fileDescriptor,
 		delete [] ts1;
 	}
 	return;
-	int i = *fileDescriptor;
-
-	if ( PhastaIONextActiveIndex == 0 )
-	{
-		int filePtr = *fileDescriptor - 1;
-		FILE* fileObject;
-		char junk;
-
-		if ( *fileDescriptor < 1 || *fileDescriptor > (int)fileArray.size() ) {
-			fprintf(stderr,"No file associated with Descriptor %d\n",*fileDescriptor);
-			fprintf(stderr,"openfile_ function has to be called before \n") ;
-			fprintf(stderr,"acessing the file\n ") ;
-			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
-			return;
-		}
-
-		// error check..
-		// since we require that a consistant header always preceed the data block
-		// let us check to see that it is actually the case.
-
-		if ( ! cscompare( LastHeaderKey[ filePtr ], keyphrase ) ) {
-			fprintf(stderr, "Header not consistant with data block\n");
-			fprintf(stderr, "Header: %s\n", LastHeaderKey[ filePtr ] );
-			fprintf(stderr, "DataBlock: %s\n ", keyphrase );
-			fprintf(stderr, "Please recheck read sequence \n");
-			if( Strict_Error ) {
-				fprintf(stderr, "fatal error: cannot continue, returning out of call\n");
-				return;
-			}
-		}
-
-		if ( LastHeaderNotFound ) return;
-
-		fileObject = fileArray[ filePtr ];
-		Wrong_Endian = byte_order[ filePtr ];
-
-		size_t type_size = typeSize( datatype );
-		int nUnits = *nItems;
-		isBinary( iotype );
-
-		if ( binary_format ) {
-			fread( valueArray, type_size, nUnits, fileObject );
-			fread( &junk, sizeof(char), 1 , fileObject );
-			//if ( Wrong_Endian ) SwapArrayByteOrder_( valueArray, type_size, nUnits );
-			if ( diff_endian) SwapArrayByteOrder_( valueArray, type_size, nUnits );
-		} else {
-
-			char* ts1 = StringStripper( datatype );
-			if ( cscompare( "integer", ts1 ) ) {
-				for( int n=0; n < nUnits ; n++ )
-					fscanf(fileObject, "%d\n",(int*)((int*)valueArray+n) );
-			} else if ( cscompare( "double", ts1 ) ) {
-				for( int n=0; n < nUnits ; n++ )
-					fscanf(fileObject, "%lf\n",(double*)((double*)valueArray+n) );
-			}
-			delete [] ts1;
-		}
-
-		return;
-	}
-	else
-	{
-		fprintf(stderr,"Shouldn't be here, readdatablock, MPIIO code from PhastaIO\n");
-	}
 }
-
-/////////////////////////////////////////////////////////////
-/*{
-	int filePtr = *fileDescriptor - 1;
-	FILE* fileObject;
-	char junk;
-
-	if ( *fileDescriptor < 1 || *fileDescriptor > (int)fileArray.size() )
-	{
-	fprintf(stderr,"No file associated with Descriptor %d\n",*fileDescriptor);
-	fprintf(stderr,"openfile function has to be called before \n") ;
-	fprintf(stderr,"acessing the file\n ") ;
-	fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
-	return;
-	}
-
-// error check..
-// since we require that a consistant header always preceed the data block
-// let us check to see that it is actually the case.
-
-if ( ! cscompare( LastHeaderKey[ filePtr ], keyphrase ) )
-{
-fprintf(stderr, "Header not consistant with data block\n");
-fprintf(stderr, "Header: %s\n", LastHeaderKey[ filePtr ] );
-fprintf(stderr, "DataBlock: %s\n ", keyphrase );
-fprintf(stderr, "Please recheck read sequence \n");
-if( Strict_Error )
-{
-fprintf(stderr, "fatal error: cannot continue, returning out of call\n");
-return;
-}
-}
-
-if ( LastHeaderNotFound ) { return; }
-
-fileObject = fileArray[ filePtr ];
-Wrong_Endian = byte_order[ filePtr ];
-
-size_t type_size = typeSize( datatype );
-int nUnits = *nItems;
-isBinary( iotype );
-
-if ( binary_format )
-{
-fread( valueArray, type_size, nUnits, fileObject );
-fread( &junk, sizeof(char), 1 , fileObject );
-if ( Wrong_Endian )
-{
-SwapArrayByteOrder( valueArray, type_size, nUnits );
-}
-}
-else
-{
-char* ts1 = StringStripper( datatype );
-if ( cscompare( "integer", ts1 ) )
-{
-for( int n=0; n < nUnits ; n++ )
-{
-fscanf(fileObject, "%d\n",(int*)((int*)valueArray+n) );
-}
-}
-else if ( cscompare( "double", ts1 ) )
-{
-for( int n=0; n < nUnits ; n++ )
-{
-fscanf(fileObject, "%lf\n",(double*)((double*)valueArray+n) );
-}
-}
-delete [] ts1;
-}
-
-return;
-}
-*/
 
 // End of copy from phastaIO
 
@@ -1352,6 +1215,7 @@ void vtkPhastaReader::ReadGeomFile(char* geomFileName,
 	///CHANGE END//////////////////////////////////////////////////
 	readheader(&geomfile,fieldName,array,&expect,"integer","binary");
 	//readheader(&geomfile,"number of nodes",array,&expect,"integer","binary");
+  vtkDebugMacro("after readheader(), fieldName=" << fieldName << ", geomfile (file desc) = " << geomfile);
 	num_nodes = array[0];
 
 	/* read number of elements */
