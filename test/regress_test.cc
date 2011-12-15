@@ -11,7 +11,7 @@
  * This program uses serial read to read 1pfpp files,
  * then write out using serial write and parallel write
  * to write out files, and also do a parallel read of
- * those new files as well.
+ * those new files as well and finally parallel write again.
  *
  * This also covers all the user cases for testing mem
  * leaks for the library itself.
