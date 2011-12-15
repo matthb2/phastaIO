@@ -170,8 +170,8 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
 
   vtkPVXMLElement* rootElement = this->Parser->GetRootElement();
 
-  ///////////////////////////////////////////////////////////////////////////////
-  int numPieces, numFiles, timeStep;
+  int numPieces;
+  int numFiles, timeStep;
   if (!rootElement->GetScalarAttribute("number_of_pieces", &numPieces))
     {
     numPieces = 1;
@@ -254,9 +254,7 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
   int numPiecesPerFile = numPieces/numFiles;
   //////////////////////
 
-
   // now loop over all of the files that I should load
-
   for(int loadingPiece=piece;loadingPiece<numPieces;loadingPiece+=numProcPieces)
     {
       TIME_STEP=this->Internal->TimeStepInfoMap[this->ActualTimeStep].FieldIndex;
@@ -292,14 +290,12 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
       sprintf(field_name,
               fieldPattern,
               this->Internal->TimeStepInfoMap[this->ActualTimeStep].FieldIndex,
-  //          FILE_ID); // don't use file id, otherwise dup geom and field file
-  //          id will make PhastaReader not update -- jingfu
+  //          FILE_ID); // don't use file id, otherwise dup geom and field file id will make PhastaReader not update -- jingfu
               loadingPiece+1);
       }
     else if (fieldHasPiece)
       {
-      sprintf(field_name, fieldPattern,
-        loadingPiece+1);
+      sprintf(field_name, fieldPattern, loadingPiece+1);
   //FILE_ID);
       }
     else if (fieldHasTime)
@@ -351,6 +347,7 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
       }
     fieldFName << field_name << ends;
     this->Reader->SetFieldFileName(fieldFName.str().c_str());
+
     vtkPPhastaReaderInternal::CachedGridsMapType::iterator CachedCopy =
       this->Internal->CachedGrids.find(loadingPiece);
 
@@ -385,8 +382,8 @@ int vtkPPhastaReader::RequestData(vtkInformation*,
     vtkSmartPointer<vtkUnstructuredGrid> copy =
       vtkSmartPointer<vtkUnstructuredGrid>::New();
     copy->ShallowCopy(this->Reader->GetOutput());
+    MultiPieceDataSet->SetPiece(loadingPiece, copy);
     //MultiPieceDataSet->SetPiece(MultiPieceDataSet->GetNumberOfPieces(),copy); // Ning's version
-    MultiPieceDataSet->SetPiece(loadingPiece,copy);
     }
 
   delete [] FILE_PATH;
@@ -411,7 +408,7 @@ int vtkPPhastaReader::RequestInformation(vtkInformation*,
                                        vtkInformationVector**,
                                        vtkInformationVector* outputVector)
 {
-  //printf("In requestInformation() -- nothing modified in this func\n");
+  vtkDebugMacro(<<"In PP requestInformation() -- nothing modified in this func\n");
   this->Internal->TimeStepInfoMap.clear();
   this->Reader->ClearFieldInfo();
 

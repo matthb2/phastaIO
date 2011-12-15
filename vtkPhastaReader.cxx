@@ -13,7 +13,6 @@ PURPOSE.  See the above copyright notice for more information.
 
 =========================================================================*/
 #include "vtkPhastaReader.h"
-//#include "vtkPPhastaReader.h"
 
 #include "vtkByteSwap.h"
 #include "vtkCellType.h"   //added for constants such as VTK_TETRA etc...
@@ -67,14 +66,6 @@ void computeTime(unsigned long long* start, unsigned long long* end) {
 	double time = (double)((*end-*start)/clockRate);
 	opentime_total += time;
 }
-
-/*
-	 This part is added for new data format, using new phastaIO library
-	 SyncIO and rbIO. Contact liun2@cs.rpi.edu
-
-	 ------ Ning Liu
-	 ------ Sept. 2010
-	 */
 
 
 #define VERSION_INFO_HEADER_SIZE 8192
@@ -596,16 +587,12 @@ void vtkPhastaReader::openfile( const char filename[],
 
 
 	if ( !file ){
-
 		fprintf(stderr,"unable to open file : %s\n",fname ) ;
-
 	} else {
-
 		fileArray.push_back( file );
 		byte_order.push_back( false );
 		header_type.push_back( sizeof(int) );
 		*fileDescriptor = fileArray.size();
-
 	}
 
 	////////////////////////////////////////////////
@@ -629,7 +616,6 @@ void vtkPhastaReader::openfile( const char filename[],
 				VERSION_INFO_HEADER_SIZE +
 				j * SerialFile->nppf * sizeof(unsigned long long),
 				SerialFile->nppf * sizeof(unsigned long long) );
-
 
 		if(diff_endian) {
 			SwapArrayByteOrder_(  SerialFile->offset_table[j],
@@ -656,43 +642,6 @@ void vtkPhastaReader::openfile( const char filename[],
 }
 
 //CHANGE END////////////////////////////////////////////////
-
-/*{
-	FILE* file=NULL ;
- *fileDescriptor = 0;
-// Stripping a filename is not correct, since
-// filenames can certainly have spaces.
-// char* fname = StringStripper( filename );
-const char* fname = filename;
-char* imode = StringStripper( mode );
-
-if ( cscompare( "read", imode ) )
-{
-file = fopen(fname, "rb" );
-}
-else if( cscompare( "write", imode ) )
-{
-file = fopen(fname, "wb" );
-}
-else if( cscompare( "append", imode ) )
-{
-file = fopen(fname, "ab" );
-}
-
-if ( !file )
-{
-fprintf(stderr,"unable to open file : %s\n",fname ) ;
-}
-else
-{
-fileArray.push_back( file );
-byte_order.push_back( 0 );
-header_type.push_back( sizeof(int) );
- *fileDescriptor = fileArray.size();
- }
- delete [] imode;
- }
- */
 void vtkPhastaReader::closefile( int* fileDescriptor,
 		const char mode[] )
 //CHANGE///////////////////////////////////////////////
@@ -711,19 +660,6 @@ void vtkPhastaReader::closefile( int* fileDescriptor,
 
 //CHANGE END///////////////////////////////////////////
 
-/*{
-	char* imode = StringStripper( mode );
-
-	if( cscompare( "write", imode ) ||
-	cscompare( "append", imode ) )
-	{
-	fflush( fileArray[ *fileDescriptor - 1 ] );
-	}
-
-	fclose( fileArray[ *fileDescriptor - 1 ] );
-	delete [] imode;
-	}
-	*/
 
 void vtkPhastaReader::readheader( int* fileDescriptor,
 		const char keyphrase[],
@@ -733,7 +669,6 @@ void vtkPhastaReader::readheader( int* fileDescriptor,
 		const char  iotype[] )
 //CHANGE////////////////////////////////////////////////////
 {
-
 	int filePtr = *fileDescriptor - 1;
 	FILE* fileObject;
 	int* valueListInt;
@@ -844,48 +779,6 @@ void vtkPhastaReader::readheader( int* fileDescriptor,
 }
 
 //CHANGE END////////////////////////////////////////////////
-
-/*{
-	int filePtr = *fileDescriptor - 1;
-	FILE* fileObject;
-	int* valueListInt;
-
-	if ( *fileDescriptor < 1 || *fileDescriptor > (int)fileArray.size() )
-	{
-	fprintf(stderr,"No file associated with Descriptor %d\n",*fileDescriptor);
-	fprintf(stderr,"openfile function has to be called before \n") ;
-	fprintf(stderr,"acessing the file\n ") ;
-	fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
-	return;
-	}
-
-	LastHeaderKey[ filePtr ] = const_cast< char* >( keyphrase );
-	LastHeaderNotFound = 0;
-
-	fileObject = fileArray[ filePtr ] ;
-	Wrong_Endian = byte_order[ filePtr ];
-
-	isBinary( iotype );
-	typeSize( datatype );   //redundant call, just avoid a compiler warning.
-
-// right now we are making the assumption that we will only write integers
-// on the header line.
-
-valueListInt = static_cast< int* >( valueArray );
-int ierr = readHeader( fileObject ,
-keyphrase,
-valueListInt,
- *nItems ) ;
-
- byte_order[ filePtr ] = Wrong_Endian ;
-
- if ( ierr )
- {
- LastHeaderNotFound = 1;
- }
-
- return ;
- }*/
 
 void vtkPhastaReader::readdatablock( int*  fileDescriptor,
 		const char keyphrase[],
