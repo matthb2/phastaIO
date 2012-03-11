@@ -40,7 +40,7 @@
 #define inv1024sq 953.674316406e-9 // = 1/1024/1024
 int MasterHeaderSize = -1;
 
-bool PRINT_PERF = false; // default to not print any perf results
+bool PRINT_PERF = true; // default to not print any perf results
 bool PRINT_DEBUG = false; // default to not print any debugging info
 int irank = -1; // global rank, should never be manually manipulated
 int mysize = -1;
