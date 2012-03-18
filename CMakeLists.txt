@@ -1,6 +1,8 @@
 project(phastaIO)
 enable_language(CXX)
 
+find_package(MPI REQUIRED)
+include_directories(${MPI_C_INCLUDE_PATH})
 # collect all the source files
 include(FortranCInterface)
 FortranCInterface_VERIFY(CXX)
@@ -11,4 +13,4 @@ add_definitions(-DOMPI_SKIP_MPICXX=1)
 set(SRC_FILES phastaIO.cc)
 
 ADD_LIBRARY(phastaIO ${SRC_FILES})
-
+target_link_libraries(phastaIO ${MPI_C_LIBRARIES})
