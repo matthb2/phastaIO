@@ -5,37 +5,26 @@
 #ifndef _PHASTAIO_H_
 #define _PHASTAIO_H_
 
+#include <FCMangle.h>
 
-#ifdef WIN32
-#define queryphmpiio_ QUERYPHMPIIO
-#define initphmpiio_ INITPHMPIIO
-#define finalizephmpiio_ FINALIZEPHMPIIO
-#define openfile_ OPENFILE
-#define closefile_ CLOSEFILE
-#define readheader_ READHEADER
-#define readdatablock_ READDATABLOCK
-#define writeheader_ WRITEHEADER
-#define writedatablock_ WRITEDATABLOCK
-#define writestring_ WRITESTRING
-#define togglestrictmode_ TOGGLESTRICTMODE
-#define SwapArrayByteOrder_ SWAPARRAYBYTEORDER
-#define isLittleEndian_ ISLITTLEENDIAN
 #ifdef intel
 #define ios_base ios
 #endif
-#elif ( defined IBM )
-#define queryphmpiio_ queryphmpiio
-#define initphmpiio_ initphmpiio
-#define finalizephmpiio_ finalizephmpiio
-#define openfile_ openfile
-#define closefile_ closefile
-#define readheader_ readheader
-#define readdatablock_ readdatablock
-#define writeheader_ writeheader
-#define writedatablock_ writedatablock
-#define writestring_ writestring
-#define togglestrictmode_ togglestrictmode
-#endif
+
+#define queryphmpiio FortranCInterface_GLOBAL_(queryphmpiio,QUERYPHMPIIO)
+#define initphmpiio FortranCInterface_GLOBAL_(initphmpiio,INITPHMPIIO)
+#define finalizephmpiio FortranCInterface_GLOBAL_(finalizephmpiio,FINALIZEPHMPIIO)
+
+#define openfile FortranCInterface_GLOBAL_(openfile, OPENFILE)
+#define closefile FortranCInterface_GLOBAL_(closefile, CLOSEFILE)
+#define readheader FortranCInterface_GLOBAL_(readheader, READHEADER)
+#define readdatablock FortranCInterface_GLOBAL_(readdatablock, READDATABLOCK)
+#define writeheader FortranCInterface_GLOBAL_(writeheader, WRITEHEADER)
+#define writedatablock FortranCInterface_GLOBAL_(writedatablock, WRITEDATABLOCK)
+#define writestring FortranCInterface_GLOBAL_(writestring, WRITESTRING)
+#define togglestrictmode FortranCInterface_GLOBAL_(togglestrictmode, TOGGLESTRICTMODE)
+#define SwapArrayByteOrder FortranCInterface_GLOBAL_(swaparraybyteorder, SWAPARRAYBYTEORDER)
+#define isLittleEndian FortranCInterface_GLOBAL_(islittleendian, ISLITTLEENDIAN)
 
 
 #if defined (__cplusplus)
@@ -45,36 +34,36 @@ extern "C" {
   void mem_alloc( void* p, char* type, int size );
 
   void
-  queryphmpiio_( const char filename[],
+  queryphmpiio( const char filename[],
 		 int *nfields,
 		 int *nppf );
 
   int
-  initphmpiio_( int *nfields,
+  initphmpiio( int *nfields,
 		int *nppf,
 		int *nfiles,
 		int *filehandle,
 		const char mode[] );
 
   void
-  finalizephmpiio_( int *fileDescriptor );
+  finalizephmpiio( int *fileDescriptor );
 
     void
-    SwapArrayByteOrder_( void* array,
+    SwapArrayByteOrder( void* array,
                          int   nbytes,
                          int   nItems ) ;
     void
 
-    openfile_( const char filename[],
+    openfile( const char filename[],
                const char mode[],
                int* fileDescriptor );
 
     void
-    closefile_( int* fileDescriptor,
+    closefile( int* fileDescriptor,
                 const char mode[] );
 
     void
-    readheader_( int*   fileDescriptor,
+    readheader( int*   fileDescriptor,
                  const char  keyphrase[],
                  void*  valueArray,
                  int*   nItems,
@@ -82,7 +71,7 @@ extern "C" {
                  const char   iotype[] );
 
     void
-    writeheader_( const int*  fileDescriptor,
+    writeheader( const int*  fileDescriptor,
                   const char keyphrase[],
                   const void* valueArray,
                   const int*  nItems,
@@ -91,7 +80,7 @@ extern "C" {
                   const char  iotype[] );
 
     void
-    readdatablock_( int*  fileDescriptor,
+    readdatablock( int*  fileDescriptor,
                     const char keyphrase[],
                     void* valueArray,
                     int*  nItems,
@@ -100,7 +89,7 @@ extern "C" {
 
 
     void
-    writedatablock_( const int*   fileDescriptor,
+    writedatablock( const int*   fileDescriptor,
                      const char  keyphrase[],
                      const void*  valueArray,
                      const int*   nItems,
@@ -108,14 +97,14 @@ extern "C" {
                      const char   iotype[]  );
 
     void
-    writestring_( int* fileDescriptor,
+    writestring( int* fileDescriptor,
                   const char inString[] );
 
     void
-    togglestrictmode_( );
+    togglestrictmode( );
 
   int
-  isLittleEndian_( ) ;
+  isLittleEndian( ) ;
 
 #ifdef __cplusplus
 } // end of extern "C".
@@ -145,7 +134,7 @@ write_data_block( const int   fileDescriptor,
 		  const T* const  valueArray,
 		  const int   nItems,
 		  const bool inBinary = false) {
-  writedatablock_(&fileDescriptor,
+  writedatablock(&fileDescriptor,
 		  keyphrase.c_str(),
 		  reinterpret_cast<const void*>(valueArray),
 		  &nItems,
@@ -161,7 +150,7 @@ write_header( const int  fileDescriptor,
 		 const int  nItems,
 		 const int  nDataItems,
 		 const bool inBinary = false) {
-      writeheader_(&fileDescriptor,
+      writeheader(&fileDescriptor,
 		   keyphrase.c_str(),
 		   reinterpret_cast<const void*>(valueArray),
 		   &nItems,

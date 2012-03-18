@@ -396,7 +396,7 @@ void printPerf(
  *
  * If the file set is of old POSIX format, it would throw error and exit
  */
-void queryphmpiio_(const char filename[],int *nfields, int *nppf)
+void queryphmpiio(const char filename[],int *nfields, int *nppf)
 {
 	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
 	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
@@ -469,7 +469,7 @@ void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 								SerialFile->masterHeader + MAX_FIELDS_NAME_LENGTH/4*3 + sizeof("mhsize : ")-1,
 								sizeof(int));
 						if ( magic_number != ENDIAN_TEST_NUMBER )
-							SwapArrayByteOrder_(&mhsize, sizeof(int), 1);
+							SwapArrayByteOrder(&mhsize, sizeof(int), 1);
 
 						if(mhsize > DefaultMHSize) {
 							//if actual headersize is larger than default, let's re-read
@@ -562,7 +562,7 @@ int computeColor( int myrank, int numprocs, int nfiles) {
  * Note: this function is only called when we are using new format. Old POSIX
  * format should skip this routine and call openfile() directly instead.
  */
-int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const char mode[])
+int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const char mode[])
 {
 	// we init irank again in case query not called (e.g. syncIO write case)
 	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
@@ -725,7 +725,7 @@ int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const c
 /**
  * Destruct the file struct and free buffers allocated in init function.
  */
-void finalizephmpiio_( int *fileDescriptor )
+void finalizephmpiio( int *fileDescriptor )
 {
 	unsigned long long timer_start, timer_end;
 	startTimer(&timer_start);
@@ -765,7 +765,7 @@ void finalizephmpiio_( int *fileDescriptor )
  * fields for parts;
  * in "write" mode, it opens the file with MPI-IO open routine.
  */
-void openfile_(const char filename[],
+void openfile(const char filename[],
                const char mode[],
                int*  fileDescriptor )
 {
@@ -907,7 +907,7 @@ void openfile_(const char filename[],
 
 					// Swap byte order if endianess is different ...
 					if ( PhastaIOActiveFiles[i]->Wrong_Endian ) {
-						SwapArrayByteOrder_( PhastaIOActiveFiles[i]->my_read_table[j],
+						SwapArrayByteOrder( PhastaIOActiveFiles[i]->my_read_table[j],
 								sizeof(long long int),
 								PhastaIOActiveFiles[i]->nppp );
 					}
@@ -947,7 +947,7 @@ void openfile_(const char filename[],
  * in "write" mode, rank 0 in each group will re-assemble the master header and
  * offset table and write to the beginning of file, then close the file.
  */
-void closefile_( int* fileDescriptor,
+void closefile( int* fileDescriptor,
                  const char mode[] )
 {
 	unsigned long long timer_start, timer_end;
@@ -1097,7 +1097,7 @@ void closefile_( int* fileDescriptor,
 	printPerf("closefile_", timer_start, timer_end, -1, "");
 }
 
-void readheader_( int* fileDescriptor,
+void readheader( int* fileDescriptor,
                   const  char keyphrase[],
                   void* valueArray,
                   int*  nItems,
@@ -1268,7 +1268,7 @@ void readheader_( int* fileDescriptor,
 
 }
 
-void readdatablock_( int*  fileDescriptor,
+void readdatablock( int*  fileDescriptor,
                      const char keyphrase[],
                      void* valueArray,
                      int*  nItems,
@@ -1322,7 +1322,7 @@ void readdatablock_( int*  fileDescriptor,
 		if ( binary_format ) {
 			fread( valueArray, type_size, nUnits, fileObject );
 			fread( &junk, sizeof(char), 1 , fileObject );
-			if ( Wrong_Endian ) SwapArrayByteOrder_( valueArray, type_size, nUnits );
+			if ( Wrong_Endian ) SwapArrayByteOrder( valueArray, type_size, nUnits );
 		} else {
 
 			char* ts1 = StringStripper( datatype );
@@ -1392,7 +1392,7 @@ void readdatablock_( int*  fileDescriptor,
 		// Swap data byte order if endianess is different ...
 		if ( PhastaIOActiveFiles[i]->Wrong_Endian )
 		{
-			SwapArrayByteOrder_( valueArray, type_size, nUnits );
+			SwapArrayByteOrder( valueArray, type_size, nUnits );
 		}
 	}
 
@@ -1405,7 +1405,7 @@ void readdatablock_( int*  fileDescriptor,
 
 }
 
-void writeheader_(  const int* fileDescriptor,
+void writeheader(  const int* fileDescriptor,
                     const char keyphrase[],
                     const void* valueArray,
                     const int* nItems,
@@ -1596,7 +1596,7 @@ void writeheader_(  const int* fileDescriptor,
 	printPerf("writeheader", timer_start, timer_end, -1, "");
 }
 
-void writedatablock_( const int* fileDescriptor,
+void writedatablock( const int* fileDescriptor,
                       const char keyphrase[],
                       const void* valueArray,
                       const int* nItems,
@@ -1732,7 +1732,7 @@ void writedatablock_( const int* fileDescriptor,
 }
 
 void
-SwapArrayByteOrder_( void* array,
+SwapArrayByteOrder( void* array,
                      int   nbytes,
                      int   nItems )
 {
@@ -1749,7 +1749,7 @@ SwapArrayByteOrder_( void* array,
 }
 
 void
-writestring_( int* fileDescriptor,
+writestring( int* fileDescriptor,
               const char inString[] )
 {
 
@@ -1784,10 +1784,10 @@ void
 isWrong( void ) { (Wrong_Endian) ? fprintf(stdout,"YES\n"): fprintf(stdout,"NO\n") ; }
 
 void
-togglestrictmode_( void ) { Strict_Error = !Strict_Error; }
+togglestrictmode( void ) { Strict_Error = !Strict_Error; }
 
 int
-isLittleEndian_( void )
+isLittleEndian( void )
 {
 	// this function returns a 1 if the current running architecture is
 	// LittleEndian Byte Ordered, else it returns a zero
