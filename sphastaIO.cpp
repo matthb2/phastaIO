@@ -2,7 +2,8 @@
 #include <cstdlib>
 #include <map>
 #include <vector>
-
+#include <cstring>
+#include <ctype.h>
 #include "sphastaIO.h"
 
 #include "rdtsc.h"
