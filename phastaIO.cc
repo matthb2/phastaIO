@@ -40,7 +40,7 @@
 #define inv1024sq 953.674316406e-9 // = 1/1024/1024
 int MasterHeaderSize = -1;
 
-bool PRINT_PERF = true; // default to not print any perf results
+bool PRINT_PERF = false; //true; // default to not print any perf results
 bool PRINT_DEBUG = false; // default to not print any debugging info
 int irank = -1; // global rank, should never be manually manipulated
 int mysize = -1;
@@ -314,6 +314,9 @@ namespace{
  * This function takes a long long pointer and assign (start) rdtsc value to it
  */
 void startTimer(unsigned long long* start) {
+
+        if( !PRINT_PERF ) return;
+
 	MPI_Barrier(MPI_COMM_WORLD);
 	*start =  rdtsc();
 }
@@ -322,6 +325,9 @@ void startTimer(unsigned long long* start) {
  * This function takes a long long pointer and assign (end) rdtsc value to it
  */
 void endTimer(unsigned long long* end) {
+
+        if( !PRINT_PERF ) return;
+
 	*end = rdtsc();
 	MPI_Barrier(MPI_COMM_WORLD);
 }
