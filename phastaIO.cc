@@ -1179,8 +1179,8 @@ void readheader_( int* fileDescriptor,
 		char* st2 = strtok ( buffer, "@" );
 		st2 = strtok (NULL, "@");
 		PhastaIOActiveFiles[i]->GPid = atoi(st2);
-		if ( char* p = strpbrk(buffer, "@") )
-			*p = '\0';
+		//if ( char* p = strpbrk(buffer, "@") )
+		//	*p = '\0';
 
 		// Check if the user has input the right GPid
 		if ( ( PhastaIOActiveFiles[i]->GPid <=
@@ -1192,6 +1192,7 @@ void readheader_( int* fileDescriptor,
 		{
 			*fileDescriptor = NOT_A_MPI_FILE;
 			printf("The file is not new format, please check ...\n");
+                        // It is possible atoi could not generate a clear integer from st2 because of additional garbage character in keyphrase
 			return;
 		}
 
@@ -1208,24 +1209,22 @@ void readheader_( int* fileDescriptor,
 		{
 			token = strtok ( readouttag[j], ":" );
 
-			if ( cscompare( buffer, token ) )
+			//if ( cscompare( buffer, token ) )
+			if ( cscompare( token , buffer ) && cscompare( buffer, token ) )  
+                        // This double comparison is required for the field "number of nodes" and all the other fields that start with "number of nodes" (i.g. number of nodes in the mesh"). 
+                        // Would be safer to rename "number of nodes" by "number of nodes in the part" so that the name are completely unique. But much more work to do that (Nspre, phParAdapt, etc).
+                        // Since the field name are unique in SyncIO (as it includes part ID), this should be safe and there should be no issue with the "?" trailing character.
 			{
 				PhastaIOActiveFiles[i]->read_field_count = j;
 				FOUND = true;
+                                //printf("buffer: %s | token: %s | j: %d\n",buffer,token,j);
 				break;
 			}
 		}
 
 		if (!FOUND)
 		{
-			//MR CHANGE
-			//              printf("Not found %s \n",keyphrase);
-			//int myrank;
-			//MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
-			if(irank==0) {
-				printf("Not found %s \n",keyphrase);
-			}
-			//MR CHANGE END
+			if(irank==0) printf("Not found %s \n",keyphrase);
 			return;
 		}
 
@@ -1250,7 +1249,7 @@ void readheader_( int* fileDescriptor,
 
 		// 	  printf("&&&&Rank %d read_out_tag is %s\n",PhastaIOActiveFiles[i]->myrank,read_out_tag);
 
-		if( cscompare( keyphrase , token ) )
+		if( cscompare( keyphrase , token ) ) //No need to compare also token with keyphrase like above. We should already have the right one. Otherwise there is a problem.
 		{
 			FOUND = true ;
 			token = strtok( NULL, " ,;<>" );
@@ -1263,6 +1262,13 @@ void readheader_( int* fileDescriptor,
 				fprintf( stderr, "Expected # of ints not found for: %s\n", keyphrase );
 			}
 		}
+                else {
+                  if(irank==0)
+                  // If we enter this if, there is a problem with the name of some fields
+                  {
+                    printf("Unexpected mismatch between keyphrase: %s and token: %s\n",keyphrase,token);
+                  }
+                }
 	}
 
 	endTimer(&timer_end);
@@ -1477,10 +1483,10 @@ void writeheader_(  const int* fileDescriptor,
 		st2 = strtok (NULL, "@");
 		PhastaIOActiveFiles[i]->GPid = atoi(st2);
 
-		if ( char* p = strpbrk(buffer, "@") )
-			*p = '\0';
+		//if ( char* p = strpbrk(buffer, "@") )
+		//	*p = '\0';
 
-		bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
+	bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
 		sprintf(mpi_tag, "\n%s : %d\n", buffer, PhastaIOActiveFiles[i]->field_count);
 		unsigned long long offset_value;
 
