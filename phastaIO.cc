@@ -517,7 +517,7 @@ void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 			} // end of if("MPI_IO_TAG")
 			else {
 				printf("\nError: The file you opened is not of syncIO new format, please check again!\n");
-        exit(1);
+                                exit(1);
 			}
 			fclose(fileHandle);
 		} //end of else
@@ -592,7 +592,7 @@ int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const c
 	}
 	else {
 		if (irank == 0) printf("Error: can't recognize the mode %s", imode);
-    exit(1);
+                exit(1);
 	}
 
 	int i, j;
@@ -1486,7 +1486,7 @@ void writeheader_(  const int* fileDescriptor,
 		//if ( char* p = strpbrk(buffer, "@") )
 		//	*p = '\0';
 
-	bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
+	        bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
 		sprintf(mpi_tag, "\n%s : %d\n", buffer, PhastaIOActiveFiles[i]->field_count);
 		unsigned long long offset_value;
 
