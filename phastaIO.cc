@@ -41,7 +41,6 @@
 int MasterHeaderSize = -1;
 
 bool PRINT_PERF = false; //true; // default to not print any perf results
-bool PRINT_DEBUG = false; // default to not print any debugging info
 int irank = -1; // global rank, should never be manually manipulated
 int mysize = -1;
 
@@ -50,7 +49,7 @@ int mysize = -1;
 
 // the following defines are for debug printf
 #define PHASTAIO_PREFIX "phastaIO debug: "
-#define PHASTAIO_DEBUG 0
+#define PHASTAIO_DEBUG 0 //default to not print any debugging info
 
 #if PHASTAIO_DEBUG
 #define phprintf( s, arg...) printf(PHASTAIO_PREFIX s "\n", ##arg)
@@ -527,7 +526,7 @@ void queryphmpiio_(const char filename[],int *nfields, int *nppf)
 	MPI_Bcast( nfields, 1, MPI_INT, 0, MPI_COMM_WORLD );
 	MPI_Bcast( nppf, 1, MPI_INT, 0, MPI_COMM_WORLD );
 	MPI_Bcast( &MasterHeaderSize, 1, MPI_INT, 0, MPI_COMM_WORLD );
-	phprintf("Info queryphmpiio: myrank = %d, MasterHeaderSize = %d\n", irank, MasterHeaderSize);
+	phprintf("Info queryphmpiio: myrank = %d, MasterHeaderSize = %d", irank, MasterHeaderSize);
 }
 
 /**
@@ -586,7 +585,7 @@ int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const c
 	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
 	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
 
-	phprintf("Info initphmpiio: entering function, myrank = %d, MasterHeaderSize = %d\n", irank, MasterHeaderSize);
+	phprintf("Info initphmpiio: entering function, myrank = %d, MasterHeaderSize = %d", irank, MasterHeaderSize);
 
 	unsigned long long timer_start, timer_end;
 	startTimer(&timer_start);
@@ -607,7 +606,7 @@ int initphmpiio_( int *nfields, int *nppf, int *nfiles, int *filehandle, const c
                 exit(1);
 	}
 
-	phprintf("Info initphmpiio: myrank = %d, MasterHeaderSize = %d\n", irank, MasterHeaderSize);
+	phprintf("Info initphmpiio: myrank = %d, MasterHeaderSize = %d", irank, MasterHeaderSize);
 
 	int i, j;
 
@@ -790,7 +789,7 @@ void openfile_(const char filename[],
                const char mode[],
                int*  fileDescriptor )
 {
-	phprintf_0("Info: entering openfile\n");
+	phprintf_0("Info: entering openfile");
 
 	unsigned long long timer_start, timer_end;
 	startTimer(&timer_start);
@@ -810,7 +809,7 @@ void openfile_(const char filename[],
 		else if( cscompare( "append", imode ) ) file = fopen(fname, "ab" );
 
 		if ( !file ){
-			fprintf(stderr,"Error openfile: unable to open file %s\n",fname ) ;
+			fprintf(stderr,"Error openfile: unable to open file %s",fname ) ;
 		} else {
 			fileArray.push_back( file );
 			byte_order.push_back( false );
