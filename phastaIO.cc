@@ -40,8 +40,7 @@
 #define inv1024sq 953.674316406e-9 // = 1/1024/1024
 int MasterHeaderSize = -1;
 
-bool PRINT_PERF = true; // default to not print any perf results
-bool PRINT_DEBUG = false; // default to not print any debugging info
+bool PRINT_PERF = false; //true; // default to not print any perf results
 int irank = -1; // global rank, should never be manually manipulated
 int mysize = -1;
 
@@ -50,7 +49,7 @@ int mysize = -1;
 
 // the following defines are for debug printf
 #define PHASTAIO_PREFIX "phastaIO debug: "
-#define PHASTAIO_DEBUG 0
+#define PHASTAIO_DEBUG 0 //default to not print any debugging info
 
 #if PHASTAIO_DEBUG
 #define phprintf( s, arg...) printf(PHASTAIO_PREFIX s "\n", ##arg)
@@ -314,6 +313,9 @@ namespace{
  * This function takes a long long pointer and assign (start) rdtsc value to it
  */
 void startTimer(unsigned long long* start) {
+
+        if( !PRINT_PERF ) return;
+
 	MPI_Barrier(MPI_COMM_WORLD);
 	*start =  rdtsc();
 }
@@ -322,6 +324,9 @@ void startTimer(unsigned long long* start) {
  * This function takes a long long pointer and assign (end) rdtsc value to it
  */
 void endTimer(unsigned long long* end) {
+
+        if( !PRINT_PERF ) return;
+
 	*end = rdtsc();
 	MPI_Barrier(MPI_COMM_WORLD);
 }
@@ -471,7 +476,7 @@ void queryphmpiio(const char filename[],int *nfields, int *nppf)
 						if ( magic_number != ENDIAN_TEST_NUMBER )
 							SwapArrayByteOrder(&mhsize, sizeof(int), 1);
 
-						if(mhsize > DefaultMHSize) {
+						if( mhsize > DefaultMHSize ) {
 							//if actual headersize is larger than default, let's re-read
 							free(SerialFile->masterHeader);
 							SerialFile->masterHeader = (char *)malloc(mhsize);
@@ -495,7 +500,7 @@ void queryphmpiio(const char filename[],int *nfields, int *nppf)
 				token = strtok( NULL," ,;<>" );
 				*nfields = atoi( token );
 				if ( *nfields > MAX_FIELDS_NUMBER) {
-					printf("Error: nfields is larger than MAX_FIELDS_NUMBER!\n");
+					printf("Error queryphmpiio: nfields is larger than MAX_FIELDS_NUMBER!\n");
 				}
 				SerialFile->nfields=*nfields; //TODO: sanity check of this int?
 
@@ -510,8 +515,8 @@ void queryphmpiio(const char filename[],int *nfields, int *nppf)
 				SerialFile->nppf=*nppf; //TODO: sanity check of int
 			} // end of if("MPI_IO_TAG")
 			else {
-				printf("\nError: The file you opened is not of syncIO new format, please check again!\n");
-        exit(1);
+				printf("Error queryphmpiio: The file you opened is not of syncIO new format, please check! read_out_tag = %s\n",read_out_tag);
+                                exit(1);
 			}
 			fclose(fileHandle);
 		} //end of else
@@ -521,7 +526,7 @@ void queryphmpiio(const char filename[],int *nfields, int *nppf)
 	MPI_Bcast( nfields, 1, MPI_INT, 0, MPI_COMM_WORLD );
 	MPI_Bcast( nppf, 1, MPI_INT, 0, MPI_COMM_WORLD );
 	MPI_Bcast( &MasterHeaderSize, 1, MPI_INT, 0, MPI_COMM_WORLD );
-	//phprintf_0("end of query(): myrank = %d, mh size= %d\n", irank, MasterHeaderSize);
+	phprintf("Info queryphmpiio: myrank = %d, MasterHeaderSize = %d", irank, MasterHeaderSize);
 }
 
 /**
@@ -547,12 +552,24 @@ int computeMHSize(int nfields, int nppf, int version) {
 }
 
 /**
- * Computes correct color of a rank according to number of files. mrasquin likes it.
+ * Computes correct color of a rank according to number of files. 
  */
 int computeColor( int myrank, int numprocs, int nfiles) {
 	int color =
 		(int)(myrank / (numprocs / nfiles));
 	return color;
+}
+
+
+/**
+ * Check the file descriptor. 
+ */
+void checkFileDescriptor(const char fctname[],
+                         int*  fileDescriptor ) {
+	if ( *fileDescriptor < 0 ) {
+		printf("Error: File descriptor = %d in %s\n",*fileDescriptor,fctname);
+		exit(1);
+	}
 }
 
 /**
@@ -568,7 +585,7 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
 	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
 
-	phprintf("entering init func, myrank = %d", irank);
+	phprintf("Info initphmpiio: entering function, myrank = %d, MasterHeaderSize = %d", irank, MasterHeaderSize);
 
 	unsigned long long timer_start, timer_end;
 	startTimer(&timer_start);
@@ -585,13 +602,16 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 		MasterHeaderSize =  computeMHSize(*nfields, *nppf, LATEST_WRITE_VERSION);
 	}
 	else {
-		if (irank == 0) printf("Error: can't recognize the mode %s", imode);
-    exit(1);
+		printf("Error initphmpiio: can't recognize the mode %s", imode);
+                exit(1);
 	}
+
+	phprintf("Info initphmpiio: myrank = %d, MasterHeaderSize = %d", irank, MasterHeaderSize);
 
 	int i, j;
 
 	if( PhastaIONextActiveIndex == MAX_PHASTA_FILES ) {
+		printf("Error initphmpiio: PhastaIONextActiveIndex = MAX_PHASTA_FILES");
 		return MAX_PHASTA_FILES_EXCEEDED;
 	}
 	//		else if( PhastaIONextActiveIndex == 0 )  //Hang in debug mode on Intrepid
@@ -717,7 +737,7 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 	sprintf(extra_msg, " total # of files is %d, total # of fields is %d ", *nfiles, *nfields);
 	printPerf("initphmpiio", timer_start, timer_end, -1, extra_msg);
 
-	phprintf_0("quiting init");
+	phprintf_0("Info initphmpiio: quiting function");
 
 	return i;
 }
@@ -769,14 +789,13 @@ void openfile(const char filename[],
                const char mode[],
                int*  fileDescriptor )
 {
-	MPI_Comm_rank(MPI_COMM_WORLD, &irank);
-	MPI_Comm_size(MPI_COMM_WORLD, &mysize);
-	//if(irank == 0) printf("entering openfile..\n");
+	phprintf_0("Info: entering openfile");
 
 	unsigned long long timer_start, timer_end;
 	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
+	checkFileDescriptor("openfile",&i);
 
 	if ( PhastaIONextActiveIndex == 0 )
 	{
@@ -790,7 +809,7 @@ void openfile(const char filename[],
 		else if( cscompare( "append", imode ) ) file = fopen(fname, "ab" );
 
 		if ( !file ){
-			fprintf(stderr,"unable to open file : %s\n",fname ) ;
+			fprintf(stderr,"Error openfile: unable to open file %s",fname ) ;
 		} else {
 			fileArray.push_back( file );
 			byte_order.push_back( false );
@@ -822,7 +841,7 @@ void openfile(const char filename[],
 			if(rc)
 			{
 				*fileDescriptor = UNABLE_TO_OPEN_FILE;
-				printf("Unable to open file ... \n");
+				printf("Error openfile: Unable to open file %s! File descriptor = %d\n",fname,*fileDescriptor);
 				return;
 			}
 
@@ -916,6 +935,8 @@ void openfile(const char filename[],
 			else //else not valid MPI file
 			{
 				*fileDescriptor = NOT_A_MPI_FILE;
+				printf("Error openfile: The file %s you opened is not in syncIO new format, please check again! File descriptor = %d, MasterHeaderSize = %d\n",fname,*fileDescriptor,MasterHeaderSize);
+				//Printing MasterHeaderSize is useful to test a compiler bug on Intrepid BGP
 				return;
 			}
 		} // end of if "read"
@@ -954,6 +975,7 @@ void closefile( int* fileDescriptor,
 	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
+	checkFileDescriptor("closefile",&i);
 
 	if ( PhastaIONextActiveIndex == 0 ) {
 		char* imode = StringStripper( mode );
@@ -977,7 +999,7 @@ void closefile( int* fileDescriptor,
 			//		MasterHeaderSize = 4*ONE_MEGABYTE + PhastaIOActiveFiles[i]->nPPF * PhastaIOActiveFiles[i]->nFields * 8 - 2*ONE_MEGABYTE;
 
 			MasterHeaderSize = computeMHSize( PhastaIOActiveFiles[i]->nFields, PhastaIOActiveFiles[i]->nPPF, LATEST_WRITE_VERSION);
-			//if(irank == 0) printf("in closefile(): mhsize = %d, myrank = %d\n", MasterHeaderSize, irank);
+			phprintf_0("Info closefile: myrank = %d, MasterHeaderSize = %d\n", PhastaIOActiveFiles[i]->myrank, MasterHeaderSize);
 
 			MPI_Status write_header_status;
 			char mpi_tag[MAX_FIELDS_NAME_LENGTH];
@@ -1105,10 +1127,12 @@ void readheader( int* fileDescriptor,
                   const char  iotype[] )
 {
 	unsigned long long timer_start, timer_end;
+	//MPI_Comm_rank(MPI_COMM_WORLD, &irank); //This should not be required if irank is indeed a global variable. irank should be initialized by either query and/or init
+	//if(irank == 0) printf("entering readheader() - %s\n", keyphrase);
 	startTimer(&timer_start);
-	//if(irank == 0) printf("entering readheader()\n");
 
 	int i = *fileDescriptor;
+	checkFileDescriptor("readheader",&i);
 
 	if ( PhastaIONextActiveIndex == 0 ) {
 		int filePtr = *fileDescriptor - 1;
@@ -1185,7 +1209,8 @@ void readheader( int* fileDescriptor,
 					PhastaIOActiveFiles[i]->nppp ) )
 		{
 			*fileDescriptor = NOT_A_MPI_FILE;
-			printf("The file is not new format, please check ...\n");
+			printf("Error readheader: The file is not in syncIO new format, please check! myrank = %d, GPid = %d, nppp = %d, keyphrase = %s\n", PhastaIOActiveFiles[i]->myrank, PhastaIOActiveFiles[i]->GPid, PhastaIOActiveFiles[i]->nppp, keyphrase);
+                        // It is possible atoi could not generate a clear integer from st2 because of additional garbage character in keyphrase
 			return;
 		}
 
@@ -1202,24 +1227,23 @@ void readheader( int* fileDescriptor,
 		{
 			token = strtok ( readouttag[j], ":" );
 
-			if ( cscompare( buffer, token ) )
+			//if ( cscompare( buffer, token ) )
+			if ( cscompare( token , buffer ) && cscompare( buffer, token ) )  
+                        // This double comparison is required for the field "number of nodes" and all the other fields that start with "number of nodes" (i.g. number of nodes in the mesh"). 
+                        // Would be safer to rename "number of nodes" by "number of nodes in the part" so that the name are completely unique. But much more work to do that (Nspre, phParAdapt, etc).
+                        // Since the field name are unique in SyncIO (as it includes part ID), this should be safe and there should be no issue with the "?" trailing character.
 			{
 				PhastaIOActiveFiles[i]->read_field_count = j;
 				FOUND = true;
+                                //printf("buffer: %s | token: %s | j: %d\n",buffer,token,j);
 				break;
 			}
 		}
 
 		if (!FOUND)
 		{
-			//MR CHANGE
-			//              printf("Not found %s \n",keyphrase);
-			//int myrank;
-			//MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
-			if(irank==0) {
-				printf("Not found %s \n",keyphrase);
-			}
-			//MR CHANGE END
+			//if(irank==0) printf("Warning readheader: Not found %s \n",keyphrase); //PhastaIOActiveFiles[i]->myrank is certainly initialized here.
+			if(PhastaIOActiveFiles[i]->myrank == 0) printf("Warning readheader: Not found %s\n",keyphrase);
 			return;
 		}
 
@@ -1244,7 +1268,7 @@ void readheader( int* fileDescriptor,
 
 		// 	  printf("&&&&Rank %d read_out_tag is %s\n",PhastaIOActiveFiles[i]->myrank,read_out_tag);
 
-		if( cscompare( keyphrase , token ) )
+		if( cscompare( keyphrase , token ) ) //No need to compare also token with keyphrase like above. We should already have the right one. Otherwise there is a problem.
 		{
 			FOUND = true ;
 			token = strtok( NULL, " ,;<>" );
@@ -1257,6 +1281,14 @@ void readheader( int* fileDescriptor,
 				fprintf( stderr, "Expected # of ints not found for: %s\n", keyphrase );
 			}
 		}
+                else {
+                  //if(irank==0)
+		  if(PhastaIOActiveFiles[i]->myrank == 0)
+                  // If we enter this if, there is a problem with the name of some fields
+                  {
+                    printf("Error readheader: Unexpected mismatch between keyphrase = %s and token = %s\n",keyphrase,token);
+                  }
+                }
 	}
 
 	endTimer(&timer_end);
@@ -1281,6 +1313,7 @@ void readdatablock( int*  fileDescriptor,
 	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
+	checkFileDescriptor("readdatablock",&i);
 
 	if ( PhastaIONextActiveIndex == 0 ) {
 		int filePtr = *fileDescriptor - 1;
@@ -1289,7 +1322,7 @@ void readdatablock( int*  fileDescriptor,
 
 		if ( *fileDescriptor < 1 || *fileDescriptor > (int)fileArray.size() ) {
 			fprintf(stderr,"No file associated with Descriptor %d\n",*fileDescriptor);
-			fprintf(stderr,"openfile_ function has to be called before \n") ;
+			fprintf(stderr,"openfile_ function has to be called before\n") ;
 			fprintf(stderr,"acessing the file\n ") ;
 			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
 			return;
@@ -1420,6 +1453,7 @@ void writeheader(  const int* fileDescriptor,
 	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
+	checkFileDescriptor("writeheader",&i);
 
 	if ( PhastaIONextActiveIndex == 0 ) {
 		int filePtr = *fileDescriptor - 1;
@@ -1474,7 +1508,7 @@ void writeheader(  const int* fileDescriptor,
 		if ( char* p = strpbrk(buffer, "@") )
 			*p = '\0';
 
-		bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
+	        bzero((void*)mpi_tag,MAX_FIELDS_NAME_LENGTH);
 		sprintf(mpi_tag, "\n%s : %d\n", buffer, PhastaIOActiveFiles[i]->field_count);
 		unsigned long long offset_value;
 
@@ -1609,6 +1643,7 @@ void writedatablock( const int* fileDescriptor,
 	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
+	checkFileDescriptor("writedatablock",&i);
 
 	if ( PhastaIONextActiveIndex == 0 ) {
 		int filePtr = *fileDescriptor - 1;
