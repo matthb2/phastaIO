@@ -554,7 +554,7 @@ int computeMHSize(int nfields, int nppf, int version) {
 /**
  * Computes correct color of a rank according to number of files. 
  */
-int computeColor( int myrank, int numprocs, int nfiles) {
+extern "C" int computeColor( int myrank, int numprocs, int nfiles) {
 	int color =
 		(int)(myrank / (numprocs / nfiles));
 	return color;

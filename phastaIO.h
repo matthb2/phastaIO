@@ -106,6 +106,8 @@ extern "C" {
   int
   isLittleEndian( ) ;
 
+  int computeColor( int myrank, int numprocs, int nfiles);
+
 #ifdef __cplusplus
 } // end of extern "C".
 
