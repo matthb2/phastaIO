@@ -794,9 +794,6 @@ void openfile(const char filename[],
 	unsigned long long timer_start, timer_end;
 	startTimer(&timer_start);
 
-	int i = *fileDescriptor;
-	checkFileDescriptor("openfile",&i);
-
 	if ( PhastaIONextActiveIndex == 0 )
 	{
 		FILE* file=NULL ;
@@ -824,7 +821,8 @@ void openfile(const char filename[],
 		char* fname = StringStripper( filename );
 		char* imode = StringStripper( mode );
 		int rc;
-		i = *fileDescriptor;
+                int i = *fileDescriptor;
+		checkFileDescriptor("openfile",&i);
 		char* token;
 
 		if ( cscompare( "read", imode ) )
