@@ -340,6 +340,7 @@ void printPerf(
 		unsigned long long start,
 		unsigned long long end,
 		unsigned long long datasize,
+		int printdatainfo,
 		const char* extra_msg) {
 
 	if( !PRINT_PERF ) return;
@@ -361,11 +362,12 @@ void printPerf(
 
 	if(irank == 0) {
 		if ( PhastaIONextActiveIndex == 0 ) printf("** 1PFPP ");
-		else																printf("** syncIO ");
+		else  printf("** syncIO ");
 		printf("%s(): Tmax = %f sec, Tmin = %f sec, Tavg = %f sec", func_name, tmax, tmin, tavg);
 	}
 
-	if(data_size != -1) { // if data size provided, compute I/O rate and block size (Michel: why do we need block size?)
+	//if(data_size != -1) { // if data size provided, compute I/O rate and block size (Michel: why do we need block size?)
+	if(printdatainfo == 1) { // if printdatainfo ==1, compute I/O rate and block size
 		MPI_Allreduce(&data_size,&isizemin,1,MPI_LONG_LONG_INT,MPI_MIN,MPI_COMM_WORLD);
 		MPI_Allreduce(&data_size,&isizemax,1,MPI_LONG_LONG_INT,MPI_MAX,MPI_COMM_WORLD);
 		MPI_Allreduce(&data_size,&isizetot,1,MPI_LONG_LONG_INT,MPI_SUM,MPI_COMM_WORLD);
@@ -735,7 +737,8 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 	char extra_msg[1024];
 	memset(extra_msg, '\0', 1024);
 	sprintf(extra_msg, " total # of files is %d, total # of fields is %d ", *nfiles, *nfields);
-	printPerf("initphmpiio", timer_start, timer_end, -1, extra_msg);
+	//printPerf("initphmpiio", timer_start, timer_end, -1, extra_msg);
+	printPerf("initphmpiio", timer_start, timer_end, 0, 0, extra_msg);
 
 	phprintf_0("Info initphmpiio: quiting function");
 
@@ -771,7 +774,8 @@ void finalizephmpiio( int *fileDescriptor )
 	free( PhastaIOActiveFiles[i]);
 
 	endTimer(&timer_end);
-	printPerf("finalizempiio", timer_start, timer_end, -1, "");
+	//printPerf("finalizempiio", timer_start, timer_end, -1, "");
+	printPerf("finalizempiio", timer_start, timer_end, 0, 0, "");
 
 	PhastaIONextActiveIndex--;
 }
@@ -954,7 +958,8 @@ void openfile(const char filename[],
 	} // end of if FileIndex != 0
 
 	endTimer(&timer_end);
-	printPerf("openfile_", timer_start, timer_end, -1, "");
+	//printPerf("openfile_", timer_start, timer_end, -1, "");
+	printPerf("openfile_", timer_start, timer_end, 0, 0, "");
 }
 
 /** close file for both POSIX and MPI-IO syncIO format.
@@ -1114,7 +1119,8 @@ void closefile( int* fileDescriptor,
 	}
 
 	endTimer(&timer_end);
-	printPerf("closefile_", timer_start, timer_end, -1, "");
+	//printPerf("closefile_", timer_start, timer_end, -1, "");
+	printPerf("closefile_", timer_start, timer_end, 0, 0, "");
 }
 
 void readheader( int* fileDescriptor,
@@ -1294,7 +1300,8 @@ void readheader( int* fileDescriptor,
 	memset(extra_msg, '\0', 1024);
 	char* key = StringStripper(keyphrase);
 	sprintf(extra_msg, " field is %s ", key);
-	printPerf("readheader", timer_start, timer_end, -1, extra_msg);
+	//printPerf("readheader", timer_start, timer_end, -1, extra_msg);
+	printPerf("readheader", timer_start, timer_end, 0, 0, extra_msg);
 
 }
 
@@ -1307,7 +1314,7 @@ void readdatablock( int*  fileDescriptor,
 {
 
 	//if(irank == 0) printf("entering readdatablock()\n");
-	unsigned long long timer_start, timer_end, data_size = -1;
+	unsigned long long timer_start, timer_end, data_size = 0;
 	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
@@ -1432,7 +1439,8 @@ void readdatablock( int*  fileDescriptor,
 	memset(extra_msg, '\0', 1024);
 	char* key = StringStripper(keyphrase);
 	sprintf(extra_msg, " field is %s ", key);
-	printPerf("readdatablock", timer_start, timer_end, data_size, extra_msg);
+	//printPerf("readdatablock", timer_start, timer_end, data_size, extra_msg);
+	printPerf("readdatablock", timer_start, timer_end, data_size, 1, extra_msg);
 
 }
 
@@ -1625,7 +1633,8 @@ void writeheader(  const int* fileDescriptor,
 	}
 
 	endTimer(&timer_end);
-	printPerf("writeheader", timer_start, timer_end, -1, "");
+	//printPerf("writeheader", timer_start, timer_end, -1, "");
+	printPerf("writeheader", timer_start, timer_end, 0, 0, "");
 }
 
 void writedatablock( const int* fileDescriptor,
@@ -1637,7 +1646,7 @@ void writedatablock( const int* fileDescriptor,
 {
 	//if(irank == 0) printf("entering writedatablock()\n");
 
-	unsigned long long timer_start, timer_end, data_size = -1;
+	unsigned long long timer_start, timer_end, data_size = 0;
 	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
@@ -1760,7 +1769,8 @@ void writedatablock( const int* fileDescriptor,
 	memset(extra_msg, '\0', 1024);
 	char* key = StringStripper(keyphrase);
 	sprintf(extra_msg, " field is %s ", key);
-	printPerf("writedatablock", timer_start, timer_end, data_size, extra_msg);
+	//printPerf("writedatablock", timer_start, timer_end, data_size, extra_msg);
+	printPerf("writedatablock", timer_start, timer_end, data_size, 1, extra_msg);
 
 }
 
