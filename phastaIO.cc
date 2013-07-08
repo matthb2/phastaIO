@@ -132,12 +132,12 @@ namespace{
 
 	typedef struct
 	{
-		unsigned long long my_offset;
-		unsigned long long **offset_table;
-		int fileID;
+		//unsigned long long my_offset;
+		//unsigned long long **offset_table;
+		//int fileID;
 		int nppf, nfields;
-		int GPid;
-		int read_field_count;
+		//int GPid;
+		//int read_field_count;
 		char * masterHeader;
 	}serial_file;
 
@@ -521,7 +521,10 @@ void queryphmpiio(const char filename[],int *nfields, int *nppf)
                                 exit(1);
 			}
 			fclose(fileHandle);
+                        free(SerialFile->masterHeader);
+                        free(SerialFile);
 		} //end of else
+                free(fname);
 	}
 
 	// Bcast value to every one
@@ -607,6 +610,7 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 		printf("Error initphmpiio: can't recognize the mode %s", imode);
                 exit(1);
 	}
+        free ( imode );
 
 	phprintf("Info initphmpiio: myrank = %d, MasterHeaderSize = %d", irank, MasterHeaderSize);
 
@@ -955,6 +959,8 @@ void openfile(const char filename[],
 				return;
 			}
 		} // end of if "write"
+		free (fname);
+		free (imode);
 	} // end of if FileIndex != 0
 
 	endTimer(&timer_end);
@@ -1302,6 +1308,7 @@ void readheader( int* fileDescriptor,
 	sprintf(extra_msg, " field is %s ", key);
 	//printPerf("readheader", timer_start, timer_end, -1, extra_msg);
 	printPerf("readheader", timer_start, timer_end, 0, 0, extra_msg);
+        free(key);
 
 }
 
@@ -1423,6 +1430,7 @@ void readdatablock( int*  fileDescriptor,
 			printf("readdatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
 			return;
 		}
+                free(ts2);
 
 
 		// 	  printf("%d Read finishe\n",PhastaIOActiveFiles[i]->myrank);
@@ -1441,6 +1449,7 @@ void readdatablock( int*  fileDescriptor,
 	sprintf(extra_msg, " field is %s ", key);
 	//printPerf("readdatablock", timer_start, timer_end, data_size, extra_msg);
 	printPerf("readdatablock", timer_start, timer_end, data_size, 1, extra_msg);
+        free(key);
 
 }
 
@@ -1762,6 +1771,7 @@ void writedatablock( const int* fileDescriptor,
 			printf("Erro: writedatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
 			return;
 		}
+                free(ts1);
 	}
 
 	endTimer(&timer_end);
@@ -1771,6 +1781,7 @@ void writedatablock( const int* fileDescriptor,
 	sprintf(extra_msg, " field is %s ", key);
 	//printPerf("writedatablock", timer_start, timer_end, data_size, extra_msg);
 	printPerf("writedatablock", timer_start, timer_end, data_size, 1, extra_msg);
+        free(key);
 
 }
 
