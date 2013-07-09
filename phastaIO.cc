@@ -762,7 +762,8 @@ void finalizephmpiio( int *fileDescriptor )
 	//PhastaIONextActiveIndex--;
 
 	/* //free the offset table for this phasta file */
-	for(j=0; j<MAX_FIELDS_NUMBER; j++)
+	//for(j=0; j<MAX_FIELDS_NUMBER; j++) //Danger: undefined behavior for my_*_table.[j] not allocated or not initialized to NULL
+	for(j=0; j<PhastaIOActiveFiles[i]->nFields; j++)
 	{
 		free( PhastaIOActiveFiles[i]->my_offset_table[j]);
 		free( PhastaIOActiveFiles[i]->my_read_table[j]);
@@ -915,11 +916,13 @@ void openfile(const char filename[],
 				// Read in the offset table ...
 				for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ )
 				{
-					memcpy( header_table[j],
+                                        if ( PhastaIOActiveFiles[i]->local_myrank == 0 ) {
+						memcpy( header_table[j],
 							PhastaIOActiveFiles[i]->master_header +
 							VERSION_INFO_HEADER_SIZE +
 							j * PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long),
 							PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long) );
+                                        }
 
 					MPI_Scatter( header_table[j],
 							PhastaIOActiveFiles[i]->nppp,
@@ -937,6 +940,12 @@ void openfile(const char filename[],
 								PhastaIOActiveFiles[i]->nppp );
 					}
 				}
+
+                                for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
+                                	free ( header_table[j] );
+                                }
+                                free (header_table);
+
 			} // end of if MPI_IO_TAG
 			else //else not valid MPI file
 			{
@@ -1092,17 +1101,18 @@ void closefile( int* fileDescriptor,
 						PhastaIOActiveFiles[i]->local_comm );
 			}
 
-			//if( irank == 0 ) printf("gonna memcpy for every procs, myrank = %d\n", irank);
-			for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
-				memcpy ( PhastaIOActiveFiles[i]->master_header +
+			if ( PhastaIOActiveFiles[i]->local_myrank == 0 ) {
+
+			        //if( irank == 0 ) printf("gonna memcpy for every procs, myrank = %d\n", irank);
+				for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
+					memcpy ( PhastaIOActiveFiles[i]->master_header +
 						VERSION_INFO_HEADER_SIZE +
 						j * PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long),
 						header_table[j],
 						PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long) );
-			}
-
-			//if( irank == 0 ) printf("gonna file_write_at(), myrank = %d\n", irank);
-			if ( PhastaIOActiveFiles[i]->local_myrank == 0 ) {
+				}
+		
+				//if( irank == 0 ) printf("gonna file_write_at(), myrank = %d\n", irank);
 				MPI_File_write_at( PhastaIOActiveFiles[i]->file_handle,
 						0,
 						PhastaIOActiveFiles[i]->master_header,
@@ -1299,6 +1309,7 @@ void readheader( int* fileDescriptor,
                     printf("Error readheader: Unexpected mismatch between keyphrase = %s and token = %s\n",keyphrase,token);
                   }
                 }
+                free(buffer);
 	}
 
 	endTimer(&timer_end);
@@ -1639,6 +1650,7 @@ void writeheader(  const int* fileDescriptor,
 			PhastaIOActiveFiles[i]->field_count++;
 			PhastaIOActiveFiles[i]->part_count=0;
 		}
+                free(buffer);
 	}
 
 	endTimer(&timer_end);
