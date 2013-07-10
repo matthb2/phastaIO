@@ -618,6 +618,8 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 
 	if( PhastaIONextActiveIndex == MAX_PHASTA_FILES ) {
 		printf("Error initphmpiio: PhastaIONextActiveIndex = MAX_PHASTA_FILES");
+                endTimer(&timer_end);
+	        printPerf("initphmpiio", timer_start, timer_end, 0, 0, "");
 		return MAX_PHASTA_FILES_EXCEEDED;
 	}
 	//		else if( PhastaIONextActiveIndex == 0 )  //Hang in debug mode on Intrepid
@@ -738,11 +740,12 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 
 	// Time monitoring
 	endTimer(&timer_end);
-	char extra_msg[1024];
-	memset(extra_msg, '\0', 1024);
-	sprintf(extra_msg, " total # of files is %d, total # of fields is %d ", *nfiles, *nfields);
+	//char extra_msg[1024];
+	//memset(extra_msg, '\0', 1024);
+	//sprintf(extra_msg, " total # of files is %d, total # of fields is %d ", *nfiles, *nfields);
 	//printPerf("initphmpiio", timer_start, timer_end, -1, extra_msg);
-	printPerf("initphmpiio", timer_start, timer_end, 0, 0, extra_msg);
+	//printPerf("initphmpiio", timer_start, timer_end, 0, 0, extra_msg);
+	printPerf("initphmpiio", timer_start, timer_end, 0, 0, "");
 
 	phprintf_0("Info initphmpiio: quiting function");
 
@@ -849,6 +852,8 @@ void openfile(const char filename[],
 			{
 				*fileDescriptor = UNABLE_TO_OPEN_FILE;
 				printf("Error openfile: Unable to open file %s! File descriptor = %d\n",fname,*fileDescriptor);
+                                endTimer(&timer_end);
+                                printPerf("openfile", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 
@@ -952,6 +957,8 @@ void openfile(const char filename[],
 				*fileDescriptor = NOT_A_MPI_FILE;
 				printf("Error openfile: The file %s you opened is not in syncIO new format, please check again! File descriptor = %d, MasterHeaderSize = %d\n",fname,*fileDescriptor,MasterHeaderSize);
 				//Printing MasterHeaderSize is useful to test a compiler bug on Intrepid BGP
+                                endTimer(&timer_end);
+                                printPerf("openfile", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 		} // end of if "read"
@@ -974,7 +981,7 @@ void openfile(const char filename[],
 
 	endTimer(&timer_end);
 	//printPerf("openfile_", timer_start, timer_end, -1, "");
-	printPerf("openfile_", timer_start, timer_end, 0, 0, "");
+	printPerf("openfile", timer_start, timer_end, 0, 0, "");
 }
 
 /** close file for both POSIX and MPI-IO syncIO format.
@@ -1164,6 +1171,8 @@ void readheader( int* fileDescriptor,
 			fprintf(stderr,"openfile_ function has to be called before \n") ;
 			fprintf(stderr,"acessing the file\n ") ;
 			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+                        endTimer(&timer_end);
+                        printPerf("readheader", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 
@@ -1231,6 +1240,8 @@ void readheader( int* fileDescriptor,
 			*fileDescriptor = NOT_A_MPI_FILE;
 			printf("Error readheader: The file is not in syncIO new format, please check! myrank = %d, GPid = %d, nppp = %d, keyphrase = %s\n", PhastaIOActiveFiles[i]->myrank, PhastaIOActiveFiles[i]->GPid, PhastaIOActiveFiles[i]->nppp, keyphrase);
                         // It is possible atoi could not generate a clear integer from st2 because of additional garbage character in keyphrase
+                        endTimer(&timer_end);
+                        printPerf("readheader", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 
@@ -1265,6 +1276,8 @@ void readheader( int* fileDescriptor,
 		{
 			//if(irank==0) printf("Warning readheader: Not found %s \n",keyphrase); //PhastaIOActiveFiles[i]->myrank is certainly initialized here.
 			if(PhastaIOActiveFiles[i]->myrank == 0) printf("Warning readheader: Not found %s\n",keyphrase);
+                        endTimer(&timer_end);
+                        printPerf("readheader", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 
@@ -1313,13 +1326,13 @@ void readheader( int* fileDescriptor,
 	}
 
 	endTimer(&timer_end);
-	char extra_msg[1024];
-	memset(extra_msg, '\0', 1024);
-	char* key = StringStripper(keyphrase);
-	sprintf(extra_msg, " field is %s ", key);
+	//char extra_msg[1024];
+	//memset(extra_msg, '\0', 1024);
+	//char* key = StringStripper(keyphrase);
+	//sprintf(extra_msg, " field is %s ", key);
 	//printPerf("readheader", timer_start, timer_end, -1, extra_msg);
-	printPerf("readheader", timer_start, timer_end, 0, 0, extra_msg);
-        free(key);
+	printPerf("readheader", timer_start, timer_end, 0, 0, "");
+        //free(key);
 
 }
 
@@ -1348,6 +1361,8 @@ void readdatablock( int*  fileDescriptor,
 			fprintf(stderr,"openfile_ function has to be called before\n") ;
 			fprintf(stderr,"acessing the file\n ") ;
 			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+                        endTimer(&timer_end);
+                        printPerf("readdatablock", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 
@@ -1362,12 +1377,17 @@ void readdatablock( int*  fileDescriptor,
 			fprintf(stderr, "Please recheck read sequence \n");
 			if( Strict_Error ) {
 				fprintf(stderr, "fatal error: cannot continue, returning out of call\n");
+                                endTimer(&timer_end);
+                                printPerf("readdatablock", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 		}
 
-		if ( LastHeaderNotFound ) return;
-
+		if ( LastHeaderNotFound ) {
+                        endTimer(&timer_end);
+                        printPerf("readdatablock", timer_start, timer_end, 0, 0, "");
+                        return;
+                }
 		fileObject = fileArray[ filePtr ];
 		Wrong_Endian = byte_order[ filePtr ];
 
@@ -1439,6 +1459,8 @@ void readdatablock( int*  fileDescriptor,
 		{
 			*fileDescriptor = DATA_TYPE_ILLEGAL;
 			printf("readdatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
+                        endTimer(&timer_end);
+                        printPerf("readdatablock", timer_start, timer_end, 0, 0, "");
 			return;
 		}
                 free(ts2);
@@ -1490,6 +1512,8 @@ void writeheader(  const int* fileDescriptor,
 			fprintf(stderr,"openfile_ function has to be called before \n") ;
 			fprintf(stderr,"acessing the file\n ") ;
 			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+                        endTimer(&timer_end);
+                        printPerf("writeheader", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 
@@ -1632,6 +1656,8 @@ void writeheader(  const int* fileDescriptor,
 		else {
 			//             *fileDescriptor = DATA_TYPE_ILLEGAL;
 			printf("writeheader - DATA_TYPE_ILLEGAL - %s\n",datatype);
+                        endTimer(&timer_end);
+                        printPerf("writeheader", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 		free(ts1);
@@ -1681,6 +1707,8 @@ void writedatablock( const int* fileDescriptor,
 			fprintf(stderr,"openfile_ function has to be called before \n") ;
 			fprintf(stderr,"acessing the file\n ") ;
 			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+                        endTimer(&timer_end);
+                        printPerf("writedatablock", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 		// since we require that a consistant header always preceed the data block
@@ -1693,6 +1721,8 @@ void writedatablock( const int* fileDescriptor,
 			fprintf(stderr, "Please recheck write sequence \n");
 			if( Strict_Error ) {
 				fprintf(stderr, "fatal error: cannot continue, returning out of call\n");
+                                endTimer(&timer_end);
+                                printPerf("writedatablock", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 		}
@@ -1706,6 +1736,8 @@ void writedatablock( const int* fileDescriptor,
 			fprintf(stderr,"keyphrase : %s\n", keyphrase);
 			if( Strict_Error ) {
 				fprintf(stderr,"fatal error: cannot continue, returning out of call\n" );
+                                endTimer(&timer_end);
+                                printPerf("writedatablock", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 		}
@@ -1717,6 +1749,8 @@ void writedatablock( const int* fileDescriptor,
 			fprintf(stderr,"keyphrase : %s\n", keyphrase);
 			if( Strict_Error ) {
 				fprintf(stderr,"fatal error: cannot continue, returning out of call\n" );
+                                endTimer(&timer_end);
+                                printPerf("writedatablock", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 		}
@@ -1780,7 +1814,9 @@ void writedatablock( const int* fileDescriptor,
 			data_size=4*nUnits;
 		}
 		else {
-			printf("Erro: writedatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
+			printf("Error: writedatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
+                        endTimer(&timer_end);
+                        printPerf("writedatablock", timer_start, timer_end, 0, 0, "");
 			return;
 		}
                 free(ts1);
