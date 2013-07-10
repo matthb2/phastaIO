@@ -1259,6 +1259,7 @@ void readheader( int* fileDescriptor,
 				break;
 			}
 		}
+                free(buffer);
 
 		if (!FOUND)
 		{
@@ -1309,7 +1310,6 @@ void readheader( int* fileDescriptor,
                     printf("Error readheader: Unexpected mismatch between keyphrase = %s and token = %s\n",keyphrase,token);
                   }
                 }
-                free(buffer);
 	}
 
 	endTimer(&timer_end);
