@@ -132,12 +132,12 @@ namespace{
 
 	typedef struct
 	{
-		unsigned long long my_offset;
-		unsigned long long **offset_table;
-		int fileID;
+		//unsigned long long my_offset;
+		//unsigned long long **offset_table;
+		//int fileID;
 		int nppf, nfields;
-		int GPid;
-		int read_field_count;
+		//int GPid;
+		//int read_field_count;
 		char * masterHeader;
 	}serial_file;
 
@@ -340,6 +340,7 @@ void printPerf(
 		unsigned long long start,
 		unsigned long long end,
 		unsigned long long datasize,
+		int printdatainfo,
 		const char* extra_msg) {
 
 	if( !PRINT_PERF ) return;
@@ -361,11 +362,12 @@ void printPerf(
 
 	if(irank == 0) {
 		if ( PhastaIONextActiveIndex == 0 ) printf("** 1PFPP ");
-		else																printf("** syncIO ");
+		else  printf("** syncIO ");
 		printf("%s(): Tmax = %f sec, Tmin = %f sec, Tavg = %f sec", func_name, tmax, tmin, tavg);
 	}
 
-	if(data_size != -1) { // if data size provided, compute I/O rate and block size (Michel: why do we need block size?)
+	//if(data_size != -1) { // if data size provided, compute I/O rate and block size (Michel: why do we need block size?)
+	if(printdatainfo == 1) { // if printdatainfo ==1, compute I/O rate and block size
 		MPI_Allreduce(&data_size,&isizemin,1,MPI_LONG_LONG_INT,MPI_MIN,MPI_COMM_WORLD);
 		MPI_Allreduce(&data_size,&isizemax,1,MPI_LONG_LONG_INT,MPI_MAX,MPI_COMM_WORLD);
 		MPI_Allreduce(&data_size,&isizetot,1,MPI_LONG_LONG_INT,MPI_SUM,MPI_COMM_WORLD);
@@ -519,7 +521,10 @@ void queryphmpiio(const char filename[],int *nfields, int *nppf)
                                 exit(1);
 			}
 			fclose(fileHandle);
+                        free(SerialFile->masterHeader);
+                        free(SerialFile);
 		} //end of else
+                free(fname);
 	}
 
 	// Bcast value to every one
@@ -605,6 +610,7 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 		printf("Error initphmpiio: can't recognize the mode %s", imode);
                 exit(1);
 	}
+        free ( imode );
 
 	phprintf("Info initphmpiio: myrank = %d, MasterHeaderSize = %d", irank, MasterHeaderSize);
 
@@ -612,6 +618,8 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 
 	if( PhastaIONextActiveIndex == MAX_PHASTA_FILES ) {
 		printf("Error initphmpiio: PhastaIONextActiveIndex = MAX_PHASTA_FILES");
+                endTimer(&timer_end);
+	        printPerf("initphmpiio", timer_start, timer_end, 0, 0, "");
 		return MAX_PHASTA_FILES_EXCEEDED;
 	}
 	//		else if( PhastaIONextActiveIndex == 0 )  //Hang in debug mode on Intrepid
@@ -732,10 +740,12 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 
 	// Time monitoring
 	endTimer(&timer_end);
-	char extra_msg[1024];
-	memset(extra_msg, '\0', 1024);
-	sprintf(extra_msg, " total # of files is %d, total # of fields is %d ", *nfiles, *nfields);
-	printPerf("initphmpiio", timer_start, timer_end, -1, extra_msg);
+	//char extra_msg[1024];
+	//memset(extra_msg, '\0', 1024);
+	//sprintf(extra_msg, " total # of files is %d, total # of fields is %d ", *nfiles, *nfields);
+	//printPerf("initphmpiio", timer_start, timer_end, -1, extra_msg);
+	//printPerf("initphmpiio", timer_start, timer_end, 0, 0, extra_msg);
+	printPerf("initphmpiio", timer_start, timer_end, 0, 0, "");
 
 	phprintf_0("Info initphmpiio: quiting function");
 
@@ -755,7 +765,8 @@ void finalizephmpiio( int *fileDescriptor )
 	//PhastaIONextActiveIndex--;
 
 	/* //free the offset table for this phasta file */
-	for(j=0; j<MAX_FIELDS_NUMBER; j++)
+	//for(j=0; j<MAX_FIELDS_NUMBER; j++) //Danger: undefined behavior for my_*_table.[j] not allocated or not initialized to NULL
+	for(j=0; j<PhastaIOActiveFiles[i]->nFields; j++)
 	{
 		free( PhastaIOActiveFiles[i]->my_offset_table[j]);
 		free( PhastaIOActiveFiles[i]->my_read_table[j]);
@@ -771,7 +782,8 @@ void finalizephmpiio( int *fileDescriptor )
 	free( PhastaIOActiveFiles[i]);
 
 	endTimer(&timer_end);
-	printPerf("finalizempiio", timer_start, timer_end, -1, "");
+	//printPerf("finalizempiio", timer_start, timer_end, -1, "");
+	printPerf("finalizempiio", timer_start, timer_end, 0, 0, "");
 
 	PhastaIONextActiveIndex--;
 }
@@ -840,6 +852,8 @@ void openfile(const char filename[],
 			{
 				*fileDescriptor = UNABLE_TO_OPEN_FILE;
 				printf("Error openfile: Unable to open file %s! File descriptor = %d\n",fname,*fileDescriptor);
+                                endTimer(&timer_end);
+                                printPerf("openfile", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 
@@ -907,11 +921,13 @@ void openfile(const char filename[],
 				// Read in the offset table ...
 				for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ )
 				{
-					memcpy( header_table[j],
+                                        if ( PhastaIOActiveFiles[i]->local_myrank == 0 ) {
+						memcpy( header_table[j],
 							PhastaIOActiveFiles[i]->master_header +
 							VERSION_INFO_HEADER_SIZE +
 							j * PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long),
 							PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long) );
+                                        }
 
 					MPI_Scatter( header_table[j],
 							PhastaIOActiveFiles[i]->nppp,
@@ -929,12 +945,20 @@ void openfile(const char filename[],
 								PhastaIOActiveFiles[i]->nppp );
 					}
 				}
+
+                                for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
+                                	free ( header_table[j] );
+                                }
+                                free (header_table);
+
 			} // end of if MPI_IO_TAG
 			else //else not valid MPI file
 			{
 				*fileDescriptor = NOT_A_MPI_FILE;
 				printf("Error openfile: The file %s you opened is not in syncIO new format, please check again! File descriptor = %d, MasterHeaderSize = %d\n",fname,*fileDescriptor,MasterHeaderSize);
 				//Printing MasterHeaderSize is useful to test a compiler bug on Intrepid BGP
+                                endTimer(&timer_end);
+                                printPerf("openfile", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 		} // end of if "read"
@@ -951,10 +975,13 @@ void openfile(const char filename[],
 				return;
 			}
 		} // end of if "write"
+		free (fname);
+		free (imode);
 	} // end of if FileIndex != 0
 
 	endTimer(&timer_end);
-	printPerf("openfile_", timer_start, timer_end, -1, "");
+	//printPerf("openfile_", timer_start, timer_end, -1, "");
+	printPerf("openfile", timer_start, timer_end, 0, 0, "");
 }
 
 /** close file for both POSIX and MPI-IO syncIO format.
@@ -1081,17 +1108,18 @@ void closefile( int* fileDescriptor,
 						PhastaIOActiveFiles[i]->local_comm );
 			}
 
-			//if( irank == 0 ) printf("gonna memcpy for every procs, myrank = %d\n", irank);
-			for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
-				memcpy ( PhastaIOActiveFiles[i]->master_header +
+			if ( PhastaIOActiveFiles[i]->local_myrank == 0 ) {
+
+			        //if( irank == 0 ) printf("gonna memcpy for every procs, myrank = %d\n", irank);
+				for ( j = 0; j < PhastaIOActiveFiles[i]->nFields; j++ ) {
+					memcpy ( PhastaIOActiveFiles[i]->master_header +
 						VERSION_INFO_HEADER_SIZE +
 						j * PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long),
 						header_table[j],
 						PhastaIOActiveFiles[i]->nPPF * sizeof(unsigned long long) );
-			}
-
-			//if( irank == 0 ) printf("gonna file_write_at(), myrank = %d\n", irank);
-			if ( PhastaIOActiveFiles[i]->local_myrank == 0 ) {
+				}
+		
+				//if( irank == 0 ) printf("gonna file_write_at(), myrank = %d\n", irank);
 				MPI_File_write_at( PhastaIOActiveFiles[i]->file_handle,
 						0,
 						PhastaIOActiveFiles[i]->master_header,
@@ -1114,7 +1142,8 @@ void closefile( int* fileDescriptor,
 	}
 
 	endTimer(&timer_end);
-	printPerf("closefile_", timer_start, timer_end, -1, "");
+	//printPerf("closefile_", timer_start, timer_end, -1, "");
+	printPerf("closefile_", timer_start, timer_end, 0, 0, "");
 }
 
 void readheader( int* fileDescriptor,
@@ -1142,6 +1171,8 @@ void readheader( int* fileDescriptor,
 			fprintf(stderr,"openfile_ function has to be called before \n") ;
 			fprintf(stderr,"acessing the file\n ") ;
 			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+                        endTimer(&timer_end);
+                        printPerf("readheader", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 
@@ -1209,6 +1240,8 @@ void readheader( int* fileDescriptor,
 			*fileDescriptor = NOT_A_MPI_FILE;
 			printf("Error readheader: The file is not in syncIO new format, please check! myrank = %d, GPid = %d, nppp = %d, keyphrase = %s\n", PhastaIOActiveFiles[i]->myrank, PhastaIOActiveFiles[i]->GPid, PhastaIOActiveFiles[i]->nppp, keyphrase);
                         // It is possible atoi could not generate a clear integer from st2 because of additional garbage character in keyphrase
+                        endTimer(&timer_end);
+                        printPerf("readheader", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 
@@ -1237,11 +1270,14 @@ void readheader( int* fileDescriptor,
 				break;
 			}
 		}
+                free(buffer);
 
 		if (!FOUND)
 		{
 			//if(irank==0) printf("Warning readheader: Not found %s \n",keyphrase); //PhastaIOActiveFiles[i]->myrank is certainly initialized here.
 			if(PhastaIOActiveFiles[i]->myrank == 0) printf("Warning readheader: Not found %s\n",keyphrase);
+                        endTimer(&timer_end);
+                        printPerf("readheader", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 
@@ -1290,11 +1326,13 @@ void readheader( int* fileDescriptor,
 	}
 
 	endTimer(&timer_end);
-	char extra_msg[1024];
-	memset(extra_msg, '\0', 1024);
-	char* key = StringStripper(keyphrase);
-	sprintf(extra_msg, " field is %s ", key);
-	printPerf("readheader", timer_start, timer_end, -1, extra_msg);
+	//char extra_msg[1024];
+	//memset(extra_msg, '\0', 1024);
+	//char* key = StringStripper(keyphrase);
+	//sprintf(extra_msg, " field is %s ", key);
+	//printPerf("readheader", timer_start, timer_end, -1, extra_msg);
+	printPerf("readheader", timer_start, timer_end, 0, 0, "");
+        //free(key);
 
 }
 
@@ -1307,7 +1345,7 @@ void readdatablock( int*  fileDescriptor,
 {
 
 	//if(irank == 0) printf("entering readdatablock()\n");
-	unsigned long long timer_start, timer_end, data_size = -1;
+	unsigned long long timer_start, timer_end, data_size = 0;
 	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
@@ -1323,6 +1361,8 @@ void readdatablock( int*  fileDescriptor,
 			fprintf(stderr,"openfile_ function has to be called before\n") ;
 			fprintf(stderr,"acessing the file\n ") ;
 			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+                        endTimer(&timer_end);
+                        printPerf("readdatablock", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 
@@ -1337,12 +1377,17 @@ void readdatablock( int*  fileDescriptor,
 			fprintf(stderr, "Please recheck read sequence \n");
 			if( Strict_Error ) {
 				fprintf(stderr, "fatal error: cannot continue, returning out of call\n");
+                                endTimer(&timer_end);
+                                printPerf("readdatablock", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 		}
 
-		if ( LastHeaderNotFound ) return;
-
+		if ( LastHeaderNotFound ) {
+                        endTimer(&timer_end);
+                        printPerf("readdatablock", timer_start, timer_end, 0, 0, "");
+                        return;
+                }
 		fileObject = fileArray[ filePtr ];
 		Wrong_Endian = byte_order[ filePtr ];
 
@@ -1414,8 +1459,11 @@ void readdatablock( int*  fileDescriptor,
 		{
 			*fileDescriptor = DATA_TYPE_ILLEGAL;
 			printf("readdatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
+                        endTimer(&timer_end);
+                        printPerf("readdatablock", timer_start, timer_end, 0, 0, "");
 			return;
 		}
+                free(ts2);
 
 
 		// 	  printf("%d Read finishe\n",PhastaIOActiveFiles[i]->myrank);
@@ -1432,7 +1480,9 @@ void readdatablock( int*  fileDescriptor,
 	memset(extra_msg, '\0', 1024);
 	char* key = StringStripper(keyphrase);
 	sprintf(extra_msg, " field is %s ", key);
-	printPerf("readdatablock", timer_start, timer_end, data_size, extra_msg);
+	//printPerf("readdatablock", timer_start, timer_end, data_size, extra_msg);
+	printPerf("readdatablock", timer_start, timer_end, data_size, 1, extra_msg);
+        free(key);
 
 }
 
@@ -1462,6 +1512,8 @@ void writeheader(  const int* fileDescriptor,
 			fprintf(stderr,"openfile_ function has to be called before \n") ;
 			fprintf(stderr,"acessing the file\n ") ;
 			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+                        endTimer(&timer_end);
+                        printPerf("writeheader", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 
@@ -1604,6 +1656,8 @@ void writeheader(  const int* fileDescriptor,
 		else {
 			//             *fileDescriptor = DATA_TYPE_ILLEGAL;
 			printf("writeheader - DATA_TYPE_ILLEGAL - %s\n",datatype);
+                        endTimer(&timer_end);
+                        printPerf("writeheader", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 		free(ts1);
@@ -1622,10 +1676,12 @@ void writeheader(  const int* fileDescriptor,
 			PhastaIOActiveFiles[i]->field_count++;
 			PhastaIOActiveFiles[i]->part_count=0;
 		}
+                free(buffer);
 	}
 
 	endTimer(&timer_end);
-	printPerf("writeheader", timer_start, timer_end, -1, "");
+	//printPerf("writeheader", timer_start, timer_end, -1, "");
+	printPerf("writeheader", timer_start, timer_end, 0, 0, "");
 }
 
 void writedatablock( const int* fileDescriptor,
@@ -1637,7 +1693,7 @@ void writedatablock( const int* fileDescriptor,
 {
 	//if(irank == 0) printf("entering writedatablock()\n");
 
-	unsigned long long timer_start, timer_end, data_size = -1;
+	unsigned long long timer_start, timer_end, data_size = 0;
 	startTimer(&timer_start);
 
 	int i = *fileDescriptor;
@@ -1651,6 +1707,8 @@ void writedatablock( const int* fileDescriptor,
 			fprintf(stderr,"openfile_ function has to be called before \n") ;
 			fprintf(stderr,"acessing the file\n ") ;
 			fprintf(stderr,"fatal error: cannot continue, returning out of call\n");
+                        endTimer(&timer_end);
+                        printPerf("writedatablock", timer_start, timer_end, 0, 0, "");
 			return;
 		}
 		// since we require that a consistant header always preceed the data block
@@ -1663,6 +1721,8 @@ void writedatablock( const int* fileDescriptor,
 			fprintf(stderr, "Please recheck write sequence \n");
 			if( Strict_Error ) {
 				fprintf(stderr, "fatal error: cannot continue, returning out of call\n");
+                                endTimer(&timer_end);
+                                printPerf("writedatablock", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 		}
@@ -1676,6 +1736,8 @@ void writedatablock( const int* fileDescriptor,
 			fprintf(stderr,"keyphrase : %s\n", keyphrase);
 			if( Strict_Error ) {
 				fprintf(stderr,"fatal error: cannot continue, returning out of call\n" );
+                                endTimer(&timer_end);
+                                printPerf("writedatablock", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 		}
@@ -1687,6 +1749,8 @@ void writedatablock( const int* fileDescriptor,
 			fprintf(stderr,"keyphrase : %s\n", keyphrase);
 			if( Strict_Error ) {
 				fprintf(stderr,"fatal error: cannot continue, returning out of call\n" );
+                                endTimer(&timer_end);
+                                printPerf("writedatablock", timer_start, timer_end, 0, 0, "");
 				return;
 			}
 		}
@@ -1750,9 +1814,12 @@ void writedatablock( const int* fileDescriptor,
 			data_size=4*nUnits;
 		}
 		else {
-			printf("Erro: writedatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
+			printf("Error: writedatablock - DATA_TYPE_ILLEGAL - %s\n",datatype);
+                        endTimer(&timer_end);
+                        printPerf("writedatablock", timer_start, timer_end, 0, 0, "");
 			return;
 		}
+                free(ts1);
 	}
 
 	endTimer(&timer_end);
@@ -1760,7 +1827,9 @@ void writedatablock( const int* fileDescriptor,
 	memset(extra_msg, '\0', 1024);
 	char* key = StringStripper(keyphrase);
 	sprintf(extra_msg, " field is %s ", key);
-	printPerf("writedatablock", timer_start, timer_end, data_size, extra_msg);
+	//printPerf("writedatablock", timer_start, timer_end, data_size, extra_msg);
+	printPerf("writedatablock", timer_start, timer_end, data_size, 1, extra_msg);
+        free(key);
 
 }
 
