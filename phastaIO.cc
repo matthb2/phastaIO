@@ -5,8 +5,9 @@
  * processors.
  *
  * Previous developer: Ning Liu         (liun2@cs.rpi.edu)
- * Current developers: Michel Rasquin   (Michel.Rasquin@colorado.edu),
  *                     Jing Fu          (fuj@cs.rpi.edu)
+ * Current developers: Michel Rasquin   (Michel.Rasquin@colorado.edu),
+ *                     Ben Matthews     (benjamien.a.matthews@colorado.edu)
  *
  */
 
@@ -21,7 +22,8 @@
 #include "phastaIO.h"
 #include "mpi.h"
 
-#include "rdtsc.h"
+//#include "rdtsc.h"
+#include "phiotmrc.h"
 #define clockRate 850000000.0
 
 #define VERSION_INFO_HEADER_SIZE 8192
@@ -40,7 +42,7 @@
 #define inv1024sq 953.674316406e-9 // = 1/1024/1024
 int MasterHeaderSize = -1;
 
-bool PRINT_PERF = false; //true; // default to not print any perf results
+bool PRINT_PERF = true; //false; //true; // default to not print any perf results
 int irank = -1; // global rank, should never be manually manipulated
 int mysize = -1;
 
@@ -317,7 +319,8 @@ void startTimer(unsigned long long* start) {
         if( !PRINT_PERF ) return;
 
 	MPI_Barrier(MPI_COMM_WORLD);
-	*start =  rdtsc();
+//	*start =  rdtsc();
+	*start =  phiotmrc();
 }
 
 /**
@@ -327,7 +330,8 @@ void endTimer(unsigned long long* end) {
 
         if( !PRINT_PERF ) return;
 
-	*end = rdtsc();
+//	*end = rdtsc();
+	*end = phiotmrc();
 	MPI_Barrier(MPI_COMM_WORLD);
 }
 
@@ -366,15 +370,11 @@ void printPerf(
 		printf("%s(): Tmax = %f sec, Tmin = %f sec, Tavg = %f sec", func_name, tmax, tmin, tavg);
 	}
 
-	//if(data_size != -1) { // if data size provided, compute I/O rate and block size (Michel: why do we need block size?)
 	if(printdatainfo == 1) { // if printdatainfo ==1, compute I/O rate and block size
 		MPI_Allreduce(&data_size,&isizemin,1,MPI_LONG_LONG_INT,MPI_MIN,MPI_COMM_WORLD);
 		MPI_Allreduce(&data_size,&isizemax,1,MPI_LONG_LONG_INT,MPI_MAX,MPI_COMM_WORLD);
 		MPI_Allreduce(&data_size,&isizetot,1,MPI_LONG_LONG_INT,MPI_SUM,MPI_COMM_WORLD);
 
-//		sizemin=(double)(isizemin/1024.0/1024.0);
-//		sizemax=(double)(isizemax/1024.0/1024.0);
-//		sizetot=(double)(isizetot/1024.0/1024.0);
 		sizemin=(double)(isizemin*inv1024sq);
 		sizemax=(double)(isizemax*inv1024sq);
 		sizetot=(double)(isizetot*inv1024sq);
