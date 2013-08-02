@@ -21,10 +21,7 @@
 #include <math.h>
 #include "phastaIO.h"
 #include "mpi.h"
-
-//#include "rdtsc.h"
 #include "phiotmrc.h"
-//#define clockRate 850000000.0
 
 #define VERSION_INFO_HEADER_SIZE 8192
 #define DB_HEADER_SIZE 1024
@@ -42,7 +39,7 @@
 #define inv1024sq 953.674316406e-9 // = 1/1024/1024
 int MasterHeaderSize = -1;
 
-bool PRINT_PERF = true; //false; //true; // default to not print any perf results
+bool PRINT_PERF = true; //false; //true; // default print any perf results
 int irank = -1; // global rank, should never be manually manipulated
 int mysize = -1;
 
@@ -312,7 +309,7 @@ namespace{
 // begin of publicly visible functions
 
 /**
- * This function takes a long long pointer and assign (start) rdtsc value to it
+ * This function takes a long long pointer and assign (start) phiotmrc value to it
  */
 //void startTimer(unsigned long long* start) {
 void startTimer(double* start) {
@@ -320,19 +317,16 @@ void startTimer(double* start) {
         if( !PRINT_PERF ) return;
 
 	MPI_Barrier(MPI_COMM_WORLD);
-//	*start =  rdtsc();
 	*start =  phiotmrc();
 }
 
 /**
- * This function takes a long long pointer and assign (end) rdtsc value to it
+ * This function takes a long long pointer and assign (end) phiotmrc value to it
  */
-//void endTimer(unsigned long long* end) {
 void endTimer(double* end) {
 
         if( !PRINT_PERF ) return;
 
-//	*end = rdtsc();
 	*end = phiotmrc();
 	MPI_Barrier(MPI_COMM_WORLD);
 }
@@ -341,13 +335,6 @@ void endTimer(double* end) {
  * choose to print some performance results (or not) according to
  * the PRINT_PERF macro
  */
-/*void printPerf(
-		const char* func_name,
-		unsigned long long start,
-		unsigned long long end,
-		unsigned long long datasize,
-		int printdatainfo,
-		const char* extra_msg) {*/
 void printPerf(
 		const char* func_name,
 		double start,
@@ -358,11 +345,8 @@ void printPerf(
 
 	if( !PRINT_PERF ) return;
 
-	//unsigned long long timer_start = start;
-	//unsigned long long timer_end = end;
 	unsigned long long data_size = datasize;
 
-	//double time = (double)((timer_end-timer_start)/clockRate);
 	double time = end - start;
 
 	unsigned long long isizemin,isizemax,isizetot;
@@ -602,7 +586,6 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 
 	phprintf("Info initphmpiio: entering function, myrank = %d, MasterHeaderSize = %d", irank, MasterHeaderSize);
 
-	//unsigned long long timer_start, timer_end;
 	double timer_start, timer_end;
 	startTimer(&timer_start);
 
@@ -751,11 +734,6 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
 
 	// Time monitoring
 	endTimer(&timer_end);
-	//char extra_msg[1024];
-	//memset(extra_msg, '\0', 1024);
-	//sprintf(extra_msg, " total # of files is %d, total # of fields is %d ", *nfiles, *nfields);
-	//printPerf("initphmpiio", timer_start, timer_end, -1, extra_msg);
-	//printPerf("initphmpiio", timer_start, timer_end, 0, 0, extra_msg);
 	printPerf("initphmpiio", timer_start, timer_end, 0, 0, "");
 
 	phprintf_0("Info initphmpiio: quiting function");
@@ -768,7 +746,6 @@ int initphmpiio( int *nfields, int *nppf, int *nfiles, int *filehandle, const ch
  */
 void finalizephmpiio( int *fileDescriptor )
 {
-	//unsigned long long timer_start, timer_end;
 	double timer_start, timer_end;
 	startTimer(&timer_start);
 
@@ -794,7 +771,6 @@ void finalizephmpiio( int *fileDescriptor )
 	free( PhastaIOActiveFiles[i]);
 
 	endTimer(&timer_end);
-	//printPerf("finalizempiio", timer_start, timer_end, -1, "");
 	printPerf("finalizempiio", timer_start, timer_end, 0, 0, "");
 
 	PhastaIONextActiveIndex--;
@@ -815,7 +791,6 @@ void openfile(const char filename[],
 {
 	phprintf_0("Info: entering openfile");
 
-	//unsigned long long timer_start, timer_end;
 	double timer_start, timer_end;
 	startTimer(&timer_start);
 
@@ -993,7 +968,6 @@ void openfile(const char filename[],
 	} // end of if FileIndex != 0
 
 	endTimer(&timer_end);
-	//printPerf("openfile_", timer_start, timer_end, -1, "");
 	printPerf("openfile", timer_start, timer_end, 0, 0, "");
 }
 
@@ -1009,7 +983,6 @@ void openfile(const char filename[],
 void closefile( int* fileDescriptor,
                  const char mode[] )
 {
-	//unsigned long long timer_start, timer_end;
 	double timer_start, timer_end;
 	startTimer(&timer_start);
 
@@ -1156,7 +1129,6 @@ void closefile( int* fileDescriptor,
 	}
 
 	endTimer(&timer_end);
-	//printPerf("closefile_", timer_start, timer_end, -1, "");
 	printPerf("closefile_", timer_start, timer_end, 0, 0, "");
 }
 
@@ -1167,7 +1139,6 @@ void readheader( int* fileDescriptor,
                   const char  datatype[],
                   const char  iotype[] )
 {
-	//unsigned long long timer_start, timer_end;
 	double timer_start, timer_end;
 	//MPI_Comm_rank(MPI_COMM_WORLD, &irank); //This should not be required if irank is indeed a global variable. irank should be initialized by either query and/or init
 	//if(irank == 0) printf("entering readheader() - %s\n", keyphrase);
@@ -1341,13 +1312,7 @@ void readheader( int* fileDescriptor,
 	}
 
 	endTimer(&timer_end);
-	//char extra_msg[1024];
-	//memset(extra_msg, '\0', 1024);
-	//char* key = StringStripper(keyphrase);
-	//sprintf(extra_msg, " field is %s ", key);
-	//printPerf("readheader", timer_start, timer_end, -1, extra_msg);
 	printPerf("readheader", timer_start, timer_end, 0, 0, "");
-        //free(key);
 
 }
 
@@ -1360,7 +1325,6 @@ void readdatablock( int*  fileDescriptor,
 {
 
 	//if(irank == 0) printf("entering readdatablock()\n");
-	//unsigned long long timer_start, timer_end, data_size = 0;
 	unsigned long long data_size = 0;
 	double timer_start, timer_end;
 	startTimer(&timer_start);
@@ -1497,7 +1461,6 @@ void readdatablock( int*  fileDescriptor,
 	memset(extra_msg, '\0', 1024);
 	char* key = StringStripper(keyphrase);
 	sprintf(extra_msg, " field is %s ", key);
-	//printPerf("readdatablock", timer_start, timer_end, data_size, extra_msg);
 	printPerf("readdatablock", timer_start, timer_end, data_size, 1, extra_msg);
         free(key);
 
@@ -1514,7 +1477,6 @@ void writeheader(  const int* fileDescriptor,
 
 	//if(irank == 0) printf("entering writeheader()\n");
 
-	//unsigned long long timer_start, timer_end;
 	double timer_start, timer_end;
 	startTimer(&timer_start);
 
@@ -1698,7 +1660,6 @@ void writeheader(  const int* fileDescriptor,
 	}
 
 	endTimer(&timer_end);
-	//printPerf("writeheader", timer_start, timer_end, -1, "");
 	printPerf("writeheader", timer_start, timer_end, 0, 0, "");
 }
 
@@ -1711,7 +1672,6 @@ void writedatablock( const int* fileDescriptor,
 {
 	//if(irank == 0) printf("entering writedatablock()\n");
 
-	//unsigned long long timer_start, timer_end, data_size = 0;
 	unsigned long long data_size = 0;
 	double timer_start, timer_end;
 	startTimer(&timer_start);
@@ -1847,7 +1807,6 @@ void writedatablock( const int* fileDescriptor,
 	memset(extra_msg, '\0', 1024);
 	char* key = StringStripper(keyphrase);
 	sprintf(extra_msg, " field is %s ", key);
-	//printPerf("writedatablock", timer_start, timer_end, data_size, extra_msg);
 	printPerf("writedatablock", timer_start, timer_end, data_size, 1, extra_msg);
         free(key);
 
