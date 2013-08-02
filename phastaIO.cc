@@ -7,7 +7,7 @@
  * Previous developer: Ning Liu         (liun2@cs.rpi.edu)
  *                     Jing Fu          (fuj@cs.rpi.edu)
  * Current developers: Michel Rasquin   (Michel.Rasquin@colorado.edu),
- *                     Ben Matthews     (benjamien.a.matthews@colorado.edu)
+ *                     Ben Matthews     (benjamin.a.matthews@colorado.edu)
  *
  */
 
